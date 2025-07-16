@@ -196,21 +196,19 @@ export default function PackingMaterialsModal({ isOpen, onClose, onOrder }: Pack
           </div>
         </div>
         
-        <div className="flex gap-2 pt-6">
+        <div className="flex justify-end gap-2 pt-6">
+          <NexusButton
+            onClick={onClose}
+            variant="secondary"
+          >
+            閉じる
+          </NexusButton>
           <NexusButton
             onClick={handleOrder}
             disabled={totalOrderCost === 0}
             variant="primary"
-            className="flex-1"
           >
             発注する ({materials.filter(m => m.orderQuantity > 0).length}件)
-          </NexusButton>
-          <NexusButton
-            onClick={onClose}
-            variant="secondary"
-            className="flex-1"
-          >
-            閉じる
           </NexusButton>
         </div>
       </div>

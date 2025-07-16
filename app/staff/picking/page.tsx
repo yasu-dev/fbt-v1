@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import PickingListManager from '@/app/components/features/picking/PickingListManager';
 import PickingProgress from '@/app/components/features/picking/PickingProgress';
 import PickingHistory from '@/app/components/features/picking/PickingHistory';
@@ -63,85 +64,37 @@ export default function PickingPage() {
 
   const fetchPickingData = async () => {
     try {
-      // モックデータ
-      const mockTasks: PickingTask[] = [
-        {
-          id: 'PICK-001',
-          orderId: 'ORD-2024-0847',
-          customerName: 'NEXUS Global Trading',
-          priority: 'urgent',
-          status: 'pending',
-          items: [
-            {
-              id: 'ITEM-001',
-              productId: 'TWD-2024-001',
-              productName: 'Canon EOS R5 ボディ',
-              sku: 'CAM-001',
-              location: 'STD-A-01',
-              quantity: 1,
-              pickedQuantity: 0,
-              status: 'pending',
-              imageUrl: '/api/placeholder/60/60',
-            },
-            {
-              id: 'ITEM-002',
-              productId: 'TWD-2024-002',
-              productName: 'Sony FE 24-70mm F2.8 GM',
-              sku: 'LENS-001',
-              location: 'HUM-01',
-              quantity: 2,
-              pickedQuantity: 0,
-              status: 'pending',
-              imageUrl: '/api/placeholder/60/60',
-            },
-          ],
-          assignee: '田中太郎',
-          createdAt: '2024-01-20T10:00:00',
-          dueDate: '2024-01-20T15:00:00',
-          shippingMethod: 'FedEx Priority',
-          totalItems: 3,
-          pickedItems: 0,
-        },
-        {
-          id: 'PICK-002',
-          orderId: 'ORD-2024-0846',
-          customerName: 'EuroTech Solutions',
-          priority: 'normal',
-          status: 'in_progress',
-          items: [
-            {
-              id: 'ITEM-003',
-              productId: 'TWD-2024-003',
-              productName: 'Nikon Z9 ボディ',
-              sku: 'CAM-003',
-              location: 'STD-A-01',
-              quantity: 1,
-              pickedQuantity: 1,
-              status: 'picked',
-              imageUrl: '/api/placeholder/60/60',
-            },
-          ],
-          assignee: '佐藤花子',
-          createdAt: '2024-01-20T09:00:00',
-          dueDate: '2024-01-20T17:00:00',
-          shippingMethod: 'DHL Express',
-          totalItems: 1,
-          pickedItems: 1,
-        },
-      ];
-
-      setPickingTasks(mockTasks);
+      // APIからデータを取得
+      const response = await fetch('/api/picking');
+      const result = await response.json();
       
-      // 統計情報を計算
-      const stats: PickingStats = {
-        totalTasks: mockTasks.length,
-        pendingTasks: mockTasks.filter(t => t.status === 'pending').length,
-        inProgressTasks: mockTasks.filter(t => t.status === 'in_progress').length,
-        completedToday: mockTasks.filter(t => t.status === 'completed').length,
-        averageTime: '25分',
-        accuracy: 99.5,
-      };
-      setStats(stats);
+      if (result.success) {
+        const tasks = result.data || [];
+        setPickingTasks(tasks);
+        
+        // 統計情報を計算
+        const stats: PickingStats = {
+          totalTasks: tasks.length,
+          pendingTasks: tasks.filter((t: PickingTask) => t.status === 'pending').length,
+          inProgressTasks: tasks.filter((t: PickingTask) => t.status === 'in_progress').length,
+          completedToday: tasks.filter((t: PickingTask) => t.status === 'completed').length,
+          averageTime: '25分',
+          accuracy: 99.5,
+        };
+        setStats(stats);
+      } else {
+        console.error('Failed to fetch picking data:', result);
+        // フォールバック用のデータ
+        setPickingTasks([]);
+        setStats({
+          totalTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          completedToday: 0,
+          averageTime: '0分',
+          accuracy: 0,
+        });
+      }
     } catch (error) {
       console.error('Error fetching picking data:', error);
     } finally {
@@ -203,32 +156,26 @@ export default function PickingPage() {
     );
   }
 
+  const headerActions = (
+    <button className="nexus-button primary">
+      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V6a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1zm12 0h2a1 1 0 001-1V6a1 1 0 00-1-1h-2a1 1 0 00-1 1v1a1 1 0 001 1zM5 20h2a1 1 0 001-1v-1a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1z" />
+      </svg>
+      バーコードスキャン
+    </button>
+  );
+
   return (
     <DashboardLayout userType="staff">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="intelligence-card africa">
-          <div className="p-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                  ピッキングリスト
-                </h1>
-                <p className="mt-1 text-sm text-nexus-text-secondary">
-                  出荷準備の効率的な商品ピッキング管理
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button className="nexus-button primary">
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V6a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1zm12 0h2a1 1 0 001-1V6a1 1 0 00-1-1h-2a1 1 0 00-1 1v1a1 1 0 001 1zM5 20h2a1 1 0 001-1v-1a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1z" />
-                  </svg>
-                  バーコードスキャン
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="ピッキングリスト"
+          subtitle="出荷準備の効率的な商品ピッキング管理"
+          userType="staff"
+          iconType="picking"
+          actions={headerActions}
+        />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -489,7 +436,7 @@ export default function PickingPage() {
 
         {/* Task Detail Modal */}
         {selectedTask && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9000] p-4">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[10001] p-4 pt-8">
             <div className="intelligence-card global max-w-[1600px] w-full max-h-[90vh] overflow-hidden">
               <div className="p-8 border-b border-nexus-border">
                 <div className="flex justify-between items-start">

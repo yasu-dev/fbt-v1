@@ -1,9 +1,10 @@
 'use client';
 
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import BarcodeScanner from '@/app/components/features/BarcodeScanner';
 import PackingInstructions from '@/app/components/features/shipping/PackingInstructions';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   TruckIcon,
@@ -16,6 +17,7 @@ import ShippingDetailModal from '@/app/components/modals/ShippingDetailModal';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 import NexusSelect from '@/app/components/ui/NexusSelect';
 import NexusButton from '@/app/components/ui/NexusButton';
+import Pagination from '@/app/components/ui/Pagination';
 import { NexusLoadingSpinner } from '@/app/components/ui';
 import { BusinessStatusIndicator } from '@/app/components/ui/StatusIndicator';
 
@@ -52,6 +54,11 @@ export default function StaffShippingPage() {
   const [deadlineFilter, setDeadlineFilter] = useState<string>('all');
 
   const [selectedDetailItem, setSelectedDetailItem] = useState<ShippingItem | null>(null);
+
+  // ページング状態
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+
   const router = useRouter();
   const { showToast } = useToast();
 
@@ -65,7 +72,7 @@ export default function StaffShippingPage() {
   }, []);
 
   useEffect(() => {
-    // モックデータを直接設定してロード時間を短縮
+    // モックデータを拡張
     const mockItems: ShippingItem[] = [
       {
         id: 'ship-001',
@@ -122,17 +129,180 @@ export default function StaffShippingPage() {
         trackingNumber: 'YM-2024-062801',
         shippingMethod: 'ヤマト宅急便（保険付き）',
         value: 2100000,
-      }
+      },
+      {
+        id: 'ship-005',
+        productName: 'Nikon NIKKOR Z 50mm f/1.2',
+        productSku: 'TWD-LEN-008',
+        orderNumber: 'ORD-2024-0628-005',
+        customer: '高橋美咲',
+        shippingAddress: '福岡県福岡市博多区1-1-1',
+        status: 'pending_inspection',
+        priority: 'normal',
+        dueDate: '20:00',
+        shippingMethod: 'ヤマト宅急便',
+        value: 245000,
+      },
+      {
+        id: 'ship-006',
+        productName: 'Omega Speedmaster',
+        productSku: 'TWD-WAT-015',
+        orderNumber: 'ORD-2024-0628-006',
+        customer: '山田一郎',
+        shippingAddress: '北海道札幌市中央区1-1-1',
+        status: 'inspected',
+        priority: 'urgent',
+        dueDate: '15:00',
+        inspectionNotes: '動作確認済み、全体的に美品',
+        shippingMethod: '佐川急便',
+        value: 850000,
+      },
+      {
+        id: 'ship-007',
+        productName: 'Fujifilm X-T5',
+        productSku: 'TWD-CAM-018',
+        orderNumber: 'ORD-2024-0628-007',
+        customer: '伊藤健太',
+        shippingAddress: '愛知県名古屋市中村区1-1-1',
+        status: 'packed',
+        priority: 'low',
+        dueDate: '21:00',
+        shippingMethod: '日本郵便',
+        value: 180000,
+      },
+      {
+        id: 'ship-008',
+        productName: 'Sony FE 85mm f/1.4 GM',
+        productSku: 'TWD-LEN-021',
+        orderNumber: 'ORD-2024-0628-008',
+        customer: '渡辺真理',
+        shippingAddress: '神奈川県川崎市1-1-1',
+        status: 'shipped',
+        priority: 'normal',
+        dueDate: '18:30',
+        trackingNumber: 'YM-2024-062802',
+        shippingMethod: 'ヤマト宅急便',
+        value: 155000,
+      },
+      {
+        id: 'ship-009',
+        productName: 'Seiko Prospex',
+        productSku: 'TWD-WAT-025',
+        orderNumber: 'ORD-2024-0628-009',
+        customer: '中村由美',
+        shippingAddress: '大阪府大阪市中央区1-1-1',
+        status: 'pending_inspection',
+        priority: 'normal',
+        dueDate: '19:30',
+        shippingMethod: '佐川急便',
+        value: 65000,
+      },
+      {
+        id: 'ship-010',
+        productName: 'Leica Q2',
+        productSku: 'TWD-CAM-030',
+        orderNumber: 'ORD-2024-0628-010',
+        customer: '小林正人',
+        shippingAddress: '東京都新宿区1-1-1',
+        status: 'inspected',
+        priority: 'urgent',
+        dueDate: '16:30',
+        inspectionNotes: '高額商品・取扱い注意',
+        shippingMethod: 'ヤマト宅急便（保険付き）',
+        value: 750000,
+      },
+      {
+        id: 'ship-011',
+        productName: 'Canon EF 70-200mm f/2.8L',
+        productSku: 'TWD-LEN-033',
+        orderNumber: 'ORD-2024-0628-011',
+        customer: '松本彩香',
+        shippingAddress: '京都府京都市下京区1-1-1',
+        status: 'packed',
+        priority: 'normal',
+        dueDate: '20:30',
+        shippingMethod: '日本郵便',
+        value: 125000,
+      },
+      {
+        id: 'ship-012',
+        productName: 'Casio G-Shock',
+        productSku: 'TWD-WAT-038',
+        orderNumber: 'ORD-2024-0628-012',
+        customer: '岡田雄介',
+        shippingAddress: '埼玉県さいたま市1-1-1',
+        status: 'delivered',
+        priority: 'low',
+        dueDate: '22:00',
+        trackingNumber: 'YM-2024-062803',
+        shippingMethod: 'ヤマト宅急便',
+        value: 35000,
+      },
+      {
+        id: 'ship-013',
+        productName: 'Panasonic GH6',
+        productSku: 'TWD-CAM-042',
+        orderNumber: 'ORD-2024-0628-013',
+        customer: '森田千佳',
+        shippingAddress: '広島県広島市中区1-1-1',
+        status: 'pending_inspection',
+        priority: 'normal',
+        dueDate: '17:30',
+        shippingMethod: '佐川急便',
+        value: 220000,
+      },
+      {
+        id: 'ship-014',
+        productName: 'Sigma 24-70mm f/2.8 DG DN',
+        productSku: 'TWD-LEN-046',
+        orderNumber: 'ORD-2024-0628-014',
+        customer: '松田健太',
+        shippingAddress: '宮城県仙台市青葉区1-1-1',
+        status: 'inspected',
+        priority: 'normal',
+        dueDate: '18:45',
+        inspectionNotes: '動作確認済み、外観良好',
+        shippingMethod: 'ヤマト宅急便',
+        value: 95000,
+      },
+      {
+        id: 'ship-015',
+        productName: 'Citizen Eco-Drive',
+        productSku: 'TWD-WAT-050',
+        orderNumber: 'ORD-2024-0628-015',
+        customer: '井上美紀',
+        shippingAddress: '千葉県千葉市中央区1-1-1',
+        status: 'packed',
+        priority: 'low',
+        dueDate: '21:30',
+        shippingMethod: '日本郵便',
+        value: 42000,
+      },
     ];
 
     setItems(mockItems);
   }, []);
 
-  const filteredItems = items.filter(item => {
-    const statusMatch = selectedStatus === 'all' || item.status === selectedStatus;
-    const priorityMatch = selectedPriority === 'all' || item.priority === selectedPriority;
-    return statusMatch && priorityMatch;
-  });
+  // フィルタリング
+  const filteredItems = useMemo(() => {
+    return items.filter(item => {
+      const statusMatch = selectedStatus === 'all' || item.status === selectedStatus;
+      const priorityMatch = selectedPriority === 'all' || item.priority === selectedPriority;
+      return statusMatch && priorityMatch;
+    });
+  }, [items, selectedStatus, selectedPriority]);
+
+  // ページネーション
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredItems.slice(startIndex, endIndex);
+  }, [filteredItems, currentPage, itemsPerPage]);
+
+  // フィルター変更時はページを1に戻す
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedStatus, selectedPriority]);
 
   // ステータス表示は BusinessStatusIndicator で統一
   const statusLabels: Record<string, string> = {
@@ -144,8 +314,8 @@ export default function StaffShippingPage() {
   };
 
   const priorityLabels: Record<string, string> = {
-    high: '緊急',
-    medium: '通常',
+    urgent: '緊急',
+    normal: '通常',
     low: '低'
   };
 
@@ -214,7 +384,7 @@ export default function StaffShippingPage() {
       ));
       showToast({
         title: '梱包完了',
-        message: `${selectedPackingItem.productName}の梱包が完了しました`,
+        message: `${selectedPackingItem.productName}の梱包が完了しました (倉庫保管中)`,
         type: 'success'
       });
       setSelectedPackingItem(null);
@@ -291,61 +461,54 @@ export default function StaffShippingPage() {
     );
   }
 
+  const headerActions = (
+    <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+      <NexusButton
+        onClick={() => setIsBarcodeScannerOpen(true)}
+        variant="default"
+        size="sm"
+        className="flex items-center justify-center gap-2"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V6a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1zm12 0h2a1 1 0 001-1V6a1 1 0 00-1-1h-2a1 1 0 00-1 1v1a1 1 0 001 1zM5 20h2a1 1 0 001-1v-1a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1z" />
+        </svg>
+        <span className="hidden sm:inline">バーコード</span>
+        <span className="sm:hidden">スキャン</span>
+      </NexusButton>
+      <NexusButton
+        onClick={handleCarrierSettings}
+        variant="default"
+        size="sm"
+        className="flex items-center justify-center gap-2"
+      >
+        <TruckIcon className="w-4 h-4" />
+        <span className="hidden sm:inline">配送設定</span>
+        <span className="sm:hidden">配送</span>
+      </NexusButton>
+      <NexusButton
+        onClick={handleMaterialsCheck}
+        variant="primary"
+        size="sm"
+        className="flex items-center justify-center gap-2 col-span-2"
+      >
+        <ArchiveBoxIcon className="w-4 h-4" />
+        <span className="hidden sm:inline">梱包資材確認</span>
+        <span className="sm:hidden">資材確認</span>
+      </NexusButton>
+    </div>
+  );
+
   return (
     <DashboardLayout userType="staff">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="intelligence-card global">
-          <div className="p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              {/* Title Section */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-2">
-                  <TruckIcon className="w-8 h-8 text-nexus-yellow flex-shrink-0" />
-                  <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                    出荷管理
-                  </h1>
-                </div>
-                <p className="text-nexus-text-secondary">
-                  出荷待ち商品のピッキング・梱包・配送管理
-                </p>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 lg:flex-shrink-0">
-                <NexusButton
-                  onClick={() => setIsBarcodeScannerOpen(true)}
-                  variant="default"
-                  className="flex items-center justify-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V6a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1zm12 0h2a1 1 0 001-1V6a1 1 0 00-1-1h-2a1 1 0 00-1 1v1a1 1 0 001 1zM5 20h2a1 1 0 001-1v-1a1 1 0 00-1-1H5a1 1 0 00-1 1v1a1 1 0 001 1z" />
-                  </svg>
-                  <span className="hidden sm:inline">バーコードスキャン</span>
-                  <span className="sm:hidden">スキャン</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={handleCarrierSettings}
-                  variant="default"
-                  className="flex items-center justify-center gap-2"
-                >
-                  <TruckIcon className="w-5 h-5" />
-                  <span className="hidden sm:inline">配送業者設定</span>
-                  <span className="sm:hidden">配送設定</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={handleMaterialsCheck}
-                  variant="primary"
-                  className="flex items-center justify-center gap-2"
-                >
-                  <ArchiveBoxIcon className="w-5 h-5" />
-                  <span className="hidden sm:inline">梱包資材確認</span>
-                  <span className="sm:hidden">資材確認</span>
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="space-y-6 max-w-4xl mx-auto">
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="出荷管理"
+          subtitle="出荷待ち商品のピッキング・梱包・配送管理"
+          userType="staff"
+          iconType="shipping"
+          actions={headerActions}
+        />
 
         {/* Carrier Settings Modal */}
         <CarrierSettingsModal
@@ -378,7 +541,7 @@ export default function StaffShippingPage() {
                   {stats.total}
                 </div>
                 <div className="metric-label text-nexus-text-secondary font-medium mt-1 sm:mt-2 text-xs sm:text-sm">
-                  総件数
+                  {filteredItems.length === items.length ? '総件数' : `絞り込み結果 (全${items.length}件)`}
                 </div>
               </div>
             </div>
@@ -445,7 +608,7 @@ export default function StaffShippingPage() {
         {/* Filters and Shipping Items */}
         <div className="intelligence-card global">
           <div className="p-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
               <NexusSelect
                 label="ステータス"
                 value={selectedStatus}
@@ -489,6 +652,13 @@ export default function StaffShippingPage() {
               />
             </div>
 
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-nexus-text-primary">出荷案件一覧</h3>
+              <p className="text-sm text-nexus-text-secondary">
+                {filteredItems.length}件中 {Math.min(itemsPerPage, filteredItems.length - (currentPage - 1) * itemsPerPage)}件を表示
+              </p>
+            </div>
+
             {/* Shipping Items List */}
             <div className="holo-table">
               <table className="w-full">
@@ -502,7 +672,7 @@ export default function StaffShippingPage() {
                   </tr>
                 </thead>
                 <tbody className="holo-body">
-                  {filteredItems.map((item) => (
+                  {paginatedItems.map((item) => (
                     <tr key={item.id} className="holo-row">
                       <td className="p-4">
                         <div className="flex items-center space-x-4">
@@ -581,15 +751,34 @@ export default function StaffShippingPage() {
               </table>
             </div>
 
-            {filteredItems.length === 0 && (
+            {paginatedItems.length === 0 && (
               <div className="text-center py-8">
                 <svg className="mx-auto h-12 w-12 text-nexus-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
                 <h3 className="mt-2 text-sm font-medium text-nexus-text-primary">出荷案件がありません</h3>
                 <p className="mt-1 text-sm text-nexus-text-secondary">
-                  条件に一致する出荷案件が見つかりません。
+                  {filteredItems.length === 0 ? 
+                    (selectedStatus !== 'all' || selectedPriority !== 'all'
+                      ? '検索条件に一致する出荷案件がありません' 
+                      : '出荷案件がありません'
+                    ) : '表示するデータがありません'
+                  }
                 </p>
+              </div>
+            )}
+
+            {/* ページネーション */}
+            {filteredItems.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-nexus-border">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={Math.ceil(filteredItems.length / itemsPerPage)}
+                  totalItems={filteredItems.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                />
               </div>
             )}
           </div>

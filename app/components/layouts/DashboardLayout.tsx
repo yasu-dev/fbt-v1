@@ -110,7 +110,7 @@ const icons = {
   ),
   delivery: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   )
 };
@@ -130,7 +130,7 @@ export default function DashboardLayout({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const { showToast } = useToast();
-  const { isBusinessFlowCollapsed, setIsBusinessFlowCollapsed } = useModal();
+  const { isBusinessFlowCollapsed, setIsBusinessFlowCollapsed, isAnyModalOpen } = useModal();
 
   const getCurrentTime = () => {
     const now = new Date();
@@ -155,6 +155,17 @@ export default function DashboardLayout({
     
     return () => clearInterval(interval);
   }, []);
+
+  // モーダル表示時の業務フロー制御
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      console.log('🔴 モーダル開: 業務フローを閉じます');
+      setIsFlowCollapsed(true);
+    } else {
+      console.log('🟢 モーダル閉: 業務フローの自動制御を復活します');
+      // モーダル閉時は元の状態に戻さない（スクロール制御に任せる）
+    }
+  }, [isAnyModalOpen]);
 
   // モバイルメニューが開いているときスクロールを無効化
   useEffect(() => {
@@ -211,6 +222,12 @@ export default function DashboardLayout({
         return;
       }
       
+      // モーダル表示中は自動制御を無効化
+      if (isAnyModalOpen) {
+        console.log('🔴 モーダル表示中: スクロール連動制御をスキップ');
+        return;
+      }
+      
       if (!ticking) {
         requestAnimationFrame(() => {
           const currentScrollY = scrollContainer.scrollTop;
@@ -258,6 +275,12 @@ export default function DashboardLayout({
           return;
         }
         
+        // モーダル表示中は自動制御を無効化
+        if (isAnyModalOpen) {
+          console.log('🔴 モーダル表示中: スクロール停止時制御をスキップ');
+          return;
+        }
+        
         // スクロール停止時の最上部チェック
         if (scrollContainer.scrollTop < 15) {
           console.log('スクロール停止: 最上部でフロー展開');
@@ -297,7 +320,7 @@ export default function DashboardLayout({
       scrollContainer.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [isInitialStabilizing]);
+  }, [isInitialStabilizing, isAnyModalOpen]);
 
   const handleSearchSubmit = (query: string) => {
     setSearchQuery(query);
@@ -365,7 +388,7 @@ export default function DashboardLayout({
 
   const staffMenuItems = [
     { 
-      label: 'スタッフダッシュボード', 
+      label: 'ダッシュボード', 
       href: '/staff/dashboard',
       icon: icons.dashboard
     },
@@ -380,7 +403,7 @@ export default function DashboardLayout({
       icon: icons.inventory
     },
     { 
-      label: '検品・撮影', 
+      label: '検品管理', 
       href: '/staff/inspection',
       icon: icons.inspection
     },
@@ -553,9 +576,17 @@ export default function DashboardLayout({
             <div className="flex items-center justify-between px-4 py-2">
               <h3 className="text-sm font-medium text-gray-700">業務フロー</h3>
               <button
-                onClick={() => setIsFlowCollapsed(!isFlowCollapsed)}
-                className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                title={isFlowCollapsed ? 'フローを展開' : 'フローを折りたたむ'}
+                onClick={() => {
+                  // モーダル表示中は手動トグル無効化
+                  if (isAnyModalOpen) {
+                    console.log('🔴 モーダル表示中: 手動トグル無効化');
+                    return;
+                  }
+                  setIsFlowCollapsed(!isFlowCollapsed);
+                }}
+                className={`p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors ${isAnyModalOpen ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={isAnyModalOpen ? 'モーダル表示中は操作できません' : (isFlowCollapsed ? 'フローを展開' : 'フローを折りたたむ')}
+                disabled={isAnyModalOpen}
               >
                 <svg 
                   className={`w-4 h-4 transition-transform ${isFlowCollapsed ? 'rotate-180' : ''}`} 
@@ -581,7 +612,7 @@ export default function DashboardLayout({
           {/* ページコンテンツ - レスポンシブ対応 */}
           <main className="flex-1 bg-gray-50 main-content" role="main" id="main-content">
             <div ref={scrollContainerRef} className="h-full overflow-y-auto page-scroll-container">
-              <div className="p-6 max-w-[1600px] mx-auto">
+              <div className="p-8 max-w-[1600px] min-w-[928px] mx-auto">
                 <div className="space-y-6">
                   {children}
                 </div>

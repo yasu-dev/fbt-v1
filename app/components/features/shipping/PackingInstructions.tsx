@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import NexusCard from '@/app/components/ui/NexusCard';
 import NexusButton from '@/app/components/ui/NexusButton';
-import WebRTCVideoRecorder from '@/app/components/features/video/WebRTCVideoRecorder';
+import TimestampVideoRecorder from '@/app/components/features/video/TimestampVideoRecorder';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 
 interface PackingInstructionsProps {
@@ -238,7 +238,7 @@ export default function PackingInstructions({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9000] p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-[10001] p-4 pt-8">
       <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
@@ -375,7 +375,7 @@ export default function PackingInstructions({
 
           {/* 動画記録モーダル */}
           {showVideoRecorder && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+            <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-[10002] p-4 pt-8">
               <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-4">
@@ -390,12 +390,12 @@ export default function PackingInstructions({
                     </button>
                   </div>
                   
-                  <WebRTCVideoRecorder
+                  <TimestampVideoRecorder
                     productId={item.id}
                     phase="phase4"
                     type="packing"
-                    onRecordingComplete={(id) => {
-                      setVideoId(id);
+                    onRecordingComplete={(timestamps) => {
+                      setVideoId(timestamps.length > 0 ? timestamps[0].id : '');
                       setShowVideoRecorder(false);
                       showToast({
                         title: '動画記録が完了しました',

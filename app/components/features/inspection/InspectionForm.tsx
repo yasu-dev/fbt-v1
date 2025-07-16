@@ -6,7 +6,7 @@ import NexusButton from '@/app/components/ui/NexusButton';
 import InspectionChecklist from './InspectionChecklist';
 import PhotoUploader from './PhotoUploader';
 import InspectionResult from './InspectionResult';
-import WebRTCVideoRecorder from '@/app/components/features/video/WebRTCVideoRecorder';
+import TimestampVideoRecorder from '@/app/components/features/video/TimestampVideoRecorder';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 
 export interface InspectionFormProps {
@@ -212,7 +212,11 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
         videoId: videoId || undefined,
       };
 
-      // APIに送信（本番運用と同じ処理）
+      // デモ用：API呼び出しをモック処理に変更
+      console.log('検品結果送信（モック）:', finalData);
+      
+      // 本番用APIコード（現在コメントアウト）
+      /*
       const response = await fetch(`/api/products/${productId}/inspection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -237,6 +241,10 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
           lastInspectionDate: new Date().toISOString()
         })
       });
+      */
+      
+      // モック処理：成功レスポンスをシミュレート
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       showToast({
         type: 'success',
@@ -244,7 +252,7 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
         message: `検品結果を保存しました。商品ステータスが「${
           result === 'passed' ? '出品準備完了' : 
           result === 'conditional' ? '要確認' : '不合格'
-        }」に更新されました。`,
+        }」に更新されました。(倉庫保管中)`,
         duration: 4000
       });
       
@@ -270,22 +278,12 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
   const validateInspectionData = (data: InspectionData) => {
     const errors: string[] = [];
 
-    // 必須チェック項目の確認
-    const exteriorChecks = Object.values(data.checklist.exterior);
-    const functionalityChecks = Object.values(data.checklist.functionality);
-    
-    if (exteriorChecks.every(check => check === false)) {
-      errors.push('外観チェック項目を少なくとも1つ確認してください');
-    }
-    
-    if (functionalityChecks.every(check => check === false)) {
-      errors.push('機能チェック項目を少なくとも1つ確認してください');
-    }
-
-    // 写真の確認
+    // 写真の確認（最低1枚必要）
     if (data.photos.length === 0) {
       errors.push('検品写真を少なくとも1枚撮影してください');
     }
+
+    // チェック項目は0個でも可（任意）
 
     return {
       isValid: errors.length === 0,
@@ -409,25 +407,22 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
 
         {currentStep === 2 && (
           <div className="space-y-6">
-            <NexusCard className="p-6">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold mb-2">検品作業の動画記録</h3>
+            <NexusCard className="p-4">
+              <div className="mb-3">
+                <h3 className="text-base font-semibold mb-1">検品作業のタイムスタンプ記録</h3>
                 <p className="text-sm text-gray-600">
-                  検品作業の様子を動画で記録します。これにより、後から作業内容を確認できます。
+                  作業の開始時刻を記録し、外部録画動画と紐付けます。タイムスタンプは任意で記録してください。
                 </p>
               </div>
             </NexusCard>
             
-            <WebRTCVideoRecorder
+            <TimestampVideoRecorder
               productId={productId}
               phase="phase2"
               type="inspection"
-              onRecordingComplete={(id) => {
-                setVideoId(id);
-                showToast({
-                  title: '動画記録が完了しました',
-                  type: 'success'
-                });
+              onRecordingComplete={(timestamps) => {
+                // タイムスタンプが記録されるたびに呼ばれる
+                setVideoId(timestamps.length > 0 ? timestamps[0].id : null);
               }}
             />
             
@@ -443,7 +438,6 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
                 onClick={() => setCurrentStep(3)}
                 variant="primary"
                 size="lg"
-                disabled={!videoId}
               >
                 次へ（写真撮影）
               </NexusButton>
