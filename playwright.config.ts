@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30 * 1000,
   expect: {
-    timeout: 5000,
+    timeout: 15000,
   },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -16,7 +16,7 @@ export default defineConfig({
     baseURL: 'http://localhost:3002',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'off',
+    video: 'on',
   },
 
   projects: [

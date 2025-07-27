@@ -1,6 +1,7 @@
-'use client';
+﻿'use client';
 
 import DashboardLayout from '../components/layouts/DashboardLayout';
+import UnifiedPageHeader from '../components/ui/UnifiedPageHeader';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -129,43 +130,35 @@ export default function BillingPage() {
     }
   };
 
+  const headerActions = (
+    <>
+      <NexusButton
+        onClick={handleExportHistory}
+        icon={<ArrowDownTrayIcon className="w-5 h-5" />}
+      >
+        支払履歴をエクスポート
+      </NexusButton>
+      <NexusButton
+        onClick={() => setIsPaymentModalOpen(true)}
+        variant="primary"
+        icon={<CreditCardIcon className="w-5 h-5" />}
+      >
+        支払い方法を登録
+      </NexusButton>
+    </>
+  );
+
   return (
     <DashboardLayout userType="seller">
       <div className="space-y-8">
-        {/* Page Header - Intelligence Card Style */}
-        <div className="intelligence-card oceania">
-          <div className="p-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-display font-bold text-nexus-text-primary mb-2">請求管理</h1>
-                <h2 className="text-xl font-bold text-nexus-text-primary flex items-center gap-3">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                  </svg>
-                  請求・精算
-                </h2>
-                <p className="text-nexus-text-secondary mt-1">
-                  売上金の請求と精算状況を管理します
-                </p>
-              </div>
-              <div className="flex gap-4">
-                <NexusButton
-                  onClick={handleExportHistory}
-                  icon={<ArrowDownTrayIcon className="w-5 h-5" />}
-                >
-                  支払履歴をエクスポート
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsPaymentModalOpen(true)}
-                  variant="primary"
-                  icon={<CreditCardIcon className="w-5 h-5" />}
-                >
-                  支払い方法を登録
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="請求管理"
+          subtitle="売上金の請求と精算状況を管理します"
+          userType="seller"
+          iconType="billing"
+          actions={headerActions}
+        />
 
         {/* Payment Method Modal */}
         <BaseModal
@@ -258,7 +251,7 @@ export default function BillingPage() {
         <div className="intelligence-metrics">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="intelligence-card oceania">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="action-orb blue">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -278,7 +271,7 @@ export default function BillingPage() {
             </div>
 
             <div className="intelligence-card oceania">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="action-orb">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -297,7 +290,7 @@ export default function BillingPage() {
             </div>
 
             <div className="intelligence-card oceania">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="action-orb green">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -317,7 +310,7 @@ export default function BillingPage() {
             </div>
 
             <div className="intelligence-card oceania">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="action-orb red">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -339,7 +332,7 @@ export default function BillingPage() {
 
         {/* Transaction History - Holo Table Style */}
         <div className="intelligence-card oceania">
-          <div className="p-8">
+          <div className="p-5">
             <div className="mb-6">
               <h3 className="text-2xl font-display font-bold text-nexus-text-primary">取引履歴</h3>
               <p className="text-nexus-text-secondary mt-1">直近の入出金明細</p>
@@ -389,35 +382,35 @@ export default function BillingPage() {
 
         {/* Monthly Report - Intelligence Card Style */}
         <div className="intelligence-card oceania">
-          <div className="p-8">
+          <div className="p-5">
             <div className="mb-6">
               <h3 className="text-2xl font-display font-bold text-nexus-text-primary">月次レポート</h3>
               <p className="text-nexus-text-secondary mt-1">今月の売上・手数料・税金の概要</p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">総売上</div>
                 <div className="text-2xl font-display font-bold text-nexus-text-primary">
                   ¥{monthlyReport.totalSales.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">手数料</div>
                 <div className="text-2xl font-display font-bold text-nexus-red">
                   -¥{monthlyReport.totalFees.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">純利益</div>
                 <div className="text-2xl font-display font-bold text-nexus-green">
                   ¥{monthlyReport.netIncome.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">予想税額</div>
                 <div className="text-2xl font-display font-bold text-nexus-text-primary">
                   ¥{monthlyReport.taxAmount.toLocaleString()}

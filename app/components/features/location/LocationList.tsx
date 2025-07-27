@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 import BaseModal from '@/app/components/ui/BaseModal';
 import NexusButton from '@/app/components/ui/NexusButton';
@@ -41,6 +41,7 @@ interface LocationListProps {
 }
 
 export default function LocationList({ searchQuery = '' }: LocationListProps) {
+  const modalScrollRef = useRef<HTMLDivElement>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [movements, setMovements] = useState<LocationMovement[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -76,6 +77,23 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
     }
   }, [searchQuery, locations]);
 
+  // モーダルが開いたときにスクロール位置をリセット
+  useEffect(() => {
+    if (selectedLocation) {
+      // ページ全体を最上部にスクロール - 正しいスクロールコンテナを対象
+      const scrollContainer = document.querySelector('.page-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+      } else {
+        window.scrollTo(0, 0);
+      }
+      
+      if (modalScrollRef.current) {
+        modalScrollRef.current.scrollTop = 0;
+      }
+    }
+  }, [selectedLocation]);
+
   const fetchLocations = async () => {
     try {
       const response = await fetch('/api/locations');
@@ -87,7 +105,14 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
           type: mapLocationTypeFromApi(location.zone),
           capacity: location.capacity || 50,
           used: location._count?.products || 0,
-          products: location.products || []
+          products: (location.products || []).map((product: any) => ({
+            id: product.id,
+            name: product.name,
+            sku: product.sku,
+            category: product.category,
+            registeredAt: product.createdAt,
+            registeredBy: product.seller?.username || 'システム'
+          }))
         }));
         setLocations(fetchedLocations);
         setFilteredLocations(fetchedLocations);
@@ -578,7 +603,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
 
       {/* ロケーション詳細モーダル */}
       {selectedLocation && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9000] p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[10001] p-4 pt-8">
           <div className="intelligence-card global max-w-4xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-8 border-b border-nexus-border">
               <div className="flex justify-between items-start">
@@ -599,7 +624,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               </div>
             </div>
 
-            <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]" ref={modalScrollRef}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <h4 className="font-semibold mb-3 text-nexus-text-primary">基本情報</h4>

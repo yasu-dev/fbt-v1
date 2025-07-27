@@ -6,7 +6,7 @@ import NexusButton from '@/app/components/ui/NexusButton';
 import InspectionChecklist from './InspectionChecklist';
 import PhotoUploader from './PhotoUploader';
 import InspectionResult from './InspectionResult';
-import WebRTCVideoRecorder from '@/app/components/features/video/WebRTCVideoRecorder';
+import TimestampVideoRecorder from '@/app/components/features/video/TimestampVideoRecorder';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 
 export interface InspectionFormProps {
@@ -51,6 +51,7 @@ interface InspectionData {
   inspectionDate: string;
   inspectorId: string;
   result: 'passed' | 'failed' | 'conditional';
+  skipPhotography?: boolean; // 撮影をスキップするかどうか
 }
 
 export default function InspectionForm({ productId }: InspectionFormProps) {
@@ -174,12 +175,17 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
     }));
   };
 
-  const submitInspection = async () => {
+  const submitInspection = async (inspectionOnly = false, locationId?: string) => {
     try {
       setLoading(true);
       
+      // 検品のみの場合はskipPhotographyフラグをセット
+      const dataToValidate = inspectionOnly 
+        ? { ...inspectionData, skipPhotography: true }
+        : inspectionData;
+      
       // バリデーション
-      const validationResult = validateInspectionData(inspectionData);
+      const validationResult = validateInspectionData(dataToValidate);
       if (!validationResult.isValid) {
         showToast({
           type: 'warning',
@@ -206,14 +212,17 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
       }
 
       const finalData = {
-        ...inspectionData,
-        result,
-        completedAt: new Date().toISOString(),
-        videoId: videoId || undefined,
+        productId,
+        inspectionNotes: inspectionData.notes,
+        condition: result === 'passed' ? 'excellent' : result === 'conditional' ? 'good' : 'poor',
+        status: 'inspection',
+        locationId: locationId, // 保管場所IDを追加
+        skipPhotography: inspectionOnly,
+        photographyDate: inspectionOnly ? null : new Date().toISOString(),
       };
 
-      // APIに送信（本番運用と同じ処理）
-      const response = await fetch(`/api/products/${productId}/inspection`, {
+      // 本番用APIコール
+      const response = await fetch(`/api/products/inspection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finalData),
@@ -221,34 +230,27 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `検品結果の保存に失敗しました: ${response.status}`);
+        throw new Error(errorData.error || `検品結果の保存に失敗しました: ${response.status}`);
       }
 
       const savedData = await response.json();
 
-      // 商品ステータスの更新
-      await fetch(`/api/inventory/${productId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: result === 'passed' ? 'ready_for_listing' : 
-                  result === 'conditional' ? 'needs_review' : 'rejected',
-          inspectionId: savedData.id,
-          lastInspectionDate: new Date().toISOString()
-        })
-      });
-
       showToast({
         type: 'success',
-        title: '検品完了',
-        message: `検品結果を保存しました。商品ステータスが「${
-          result === 'passed' ? '出品準備完了' : 
-          result === 'conditional' ? '要確認' : '不合格'
-        }」に更新されました。`,
+        title: inspectionOnly ? '検品完了' : '検品・撮影完了',
+        message: inspectionOnly 
+          ? `検品結果を保存しました。商品ステータスが「${
+              result === 'passed' ? '撮影待ち' : 
+              result === 'conditional' ? '要確認' : '不合格'
+            }」に更新されました。後で撮影を行ってください。`
+          : `検品・撮影が完了しました。商品ステータスが「${
+              result === 'passed' ? '出品準備完了' : 
+              result === 'conditional' ? '要確認' : '不合格'
+            }」に更新されました。`,
         duration: 4000
       });
       
-      // 本番運用では適切な画面遷移を行う
+      // 成功時は検品ページに戻る
       setTimeout(() => {
         window.location.href = '/staff/inspection';
       }, 2000);
@@ -270,22 +272,12 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
   const validateInspectionData = (data: InspectionData) => {
     const errors: string[] = [];
 
-    // 必須チェック項目の確認
-    const exteriorChecks = Object.values(data.checklist.exterior);
-    const functionalityChecks = Object.values(data.checklist.functionality);
-    
-    if (exteriorChecks.every(check => check === false)) {
-      errors.push('外観チェック項目を少なくとも1つ確認してください');
-    }
-    
-    if (functionalityChecks.every(check => check === false)) {
-      errors.push('機能チェック項目を少なくとも1つ確認してください');
-    }
-
-    // 写真の確認
-    if (data.photos.length === 0) {
+    // 写真の確認（撮影をスキップしない場合のみ必要）
+    if (!data.skipPhotography && data.photos.length === 0) {
       errors.push('検品写真を少なくとも1枚撮影してください');
     }
+
+    // チェック項目は0個でも可（任意）
 
     return {
       isValid: errors.length === 0,
@@ -409,25 +401,22 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
 
         {currentStep === 2 && (
           <div className="space-y-6">
-            <NexusCard className="p-6">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold mb-2">検品作業の動画記録</h3>
+            <NexusCard className="p-4">
+              <div className="mb-3">
+                <h3 className="text-base font-semibold mb-1">検品作業のタイムスタンプ記録</h3>
                 <p className="text-sm text-gray-600">
-                  検品作業の様子を動画で記録します。これにより、後から作業内容を確認できます。
+                  作業の開始時刻を記録し、外部録画動画と紐付けます。タイムスタンプは任意で記録してください。
                 </p>
               </div>
             </NexusCard>
             
-            <WebRTCVideoRecorder
+            <TimestampVideoRecorder
               productId={productId}
               phase="phase2"
               type="inspection"
-              onRecordingComplete={(id) => {
-                setVideoId(id);
-                showToast({
-                  title: '動画記録が完了しました',
-                  type: 'success'
-                });
+              onRecordingComplete={(timestamps) => {
+                // タイムスタンプが記録されるたびに呼ばれる
+                setVideoId(timestamps.length > 0 ? timestamps[0].id : null);
               }}
             />
             
@@ -443,7 +432,6 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
                 onClick={() => setCurrentStep(3)}
                 variant="primary"
                 size="lg"
-                disabled={!videoId}
               >
                 次へ（写真撮影）
               </NexusButton>
@@ -467,7 +455,8 @@ export default function InspectionForm({ productId }: InspectionFormProps) {
             product={product}
             inspectionData={inspectionData}
             onNotesChange={(notes) => setInspectionData(prev => ({ ...prev, notes }))}
-            onSubmit={submitInspection}
+            onSubmit={(locationId) => submitInspection(false, locationId)} // 通常の検品・撮影完了
+            onSubmitInspectionOnly={(locationId) => submitInspection(true, locationId)} // 検品のみ完了
             onPrev={() => setCurrentStep(3)}
             loading={loading}
           />

@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { type, data } = body;
+    const { type, data, carrier, service } = body;
 
     if (!type || !data) {
       return NextResponse.json(
@@ -31,6 +31,12 @@ export async function POST(request: NextRequest) {
         // バーコードラベルの生成
         pdfBlob = await PDFGenerator.generateBarcodeLabels(data);
         fileName = `barcode_labels_${Date.now()}.pdf`;
+        break;
+
+      case 'shipping-label':
+        // 配送ラベルの生成（配送業者対応）
+        pdfBlob = await PDFGenerator.generateShippingLabel(data, carrier, service);
+        fileName = `shipping_label_${data.orderNumber || Date.now()}_${carrier || 'generic'}.pdf`;
         break;
 
       case 'delivery-note':

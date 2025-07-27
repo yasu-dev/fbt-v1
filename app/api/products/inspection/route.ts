@@ -6,10 +6,12 @@ const prisma = new PrismaClient();
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Inspection POST request received');
     const user = await AuthService.requireRole(request, ['staff', 'admin']);
+    console.log('User authenticated:', user?.username);
 
     const body = await request.json();
-    const { productId, inspectionNotes, condition, status, locationId } = body;
+    const { productId, inspectionNotes, condition, status, locationId, skipPhotography, photographyDate } = body;
 
     if (!productId) {
       return NextResponse.json(
@@ -18,9 +20,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const product = await prisma.product.findUnique({
+    // productIdまたはSKUで商品を検索
+    let product = await prisma.product.findUnique({
       where: { id: productId },
     });
+
+    // IDで見つからない場合、SKUで検索を試行
+    if (!product) {
+      product = await prisma.product.findUnique({
+        where: { sku: productId },
+      });
+    }
+
+    // それでも見つからない場合、SKUの末尾で検索（例：006 -> CAM-*-006）
+    if (!product) {
+      product = await prisma.product.findFirst({
+        where: { 
+          sku: { 
+            endsWith: `-${productId}` 
+          } 
+        },
+      });
+    }
 
     if (!product) {
       return NextResponse.json(
@@ -29,13 +50,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Prepare metadata for inspection and photography status tracking
+    const currentMetadata = product.metadata ? JSON.parse(product.metadata) : {};
+    const updatedMetadata = {
+      ...currentMetadata,
+      inspectionCompleted: true,
+      inspectionDate: new Date().toISOString(),
+      photographyCompleted: skipPhotography ? false : !!photographyDate,
+      ...(photographyDate && { photographyDate }),
+      skipPhotography: !!skipPhotography,
+    };
+
     // Update product with inspection data
     const updatedProduct = await prisma.product.update({
-      where: { id: productId },
+      where: { id: product.id },
       data: {
         inspectedAt: new Date(),
         inspectedBy: user.username,
         inspectionNotes,
+        metadata: JSON.stringify(updatedMetadata),
         ...(condition && {
           condition: condition.replace('新品', 'new')
                             .replace('新品同様', 'like_new')
@@ -54,7 +87,7 @@ export async function POST(request: NextRequest) {
     if (locationId && locationId !== product.currentLocationId) {
       await prisma.inventoryMovement.create({
         data: {
-          productId,
+          productId: product.id,
           fromLocationId: product.currentLocationId,
           toLocationId: locationId,
           movedBy: user.username,
@@ -69,10 +102,13 @@ export async function POST(request: NextRequest) {
         type: 'inspection',
         description: `商品 ${product.name} の検品が完了しました`,
         userId: user.id,
-        productId,
+        productId: product.id,
         metadata: JSON.stringify({
           condition,
           notes: inspectionNotes,
+          skipPhotography,
+          inspectionCompleted: true,
+          photographyCompleted: !skipPhotography,
         }),
       },
     });
@@ -117,9 +153,28 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const product = await prisma.product.findUnique({
+    // productIdまたはSKUで商品を検索
+    let product = await prisma.product.findUnique({
       where: { id: productId },
     });
+
+    // IDで見つからない場合、SKUで検索を試行
+    if (!product) {
+      product = await prisma.product.findUnique({
+        where: { sku: productId },
+      });
+    }
+
+    // それでも見つからない場合、SKUの末尾で検索（例：006 -> CAM-*-006）
+    if (!product) {
+      product = await prisma.product.findFirst({
+        where: { 
+          sku: { 
+            endsWith: `-${productId}` 
+          } 
+        },
+      });
+    }
 
     if (!product) {
       return NextResponse.json(
@@ -129,7 +184,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const updatedProduct = await prisma.product.update({
-      where: { id: productId },
+      where: { id: product.id },
       data: {
         status: mappedStatus,
       },
@@ -141,7 +196,7 @@ export async function PUT(request: NextRequest) {
         type: 'status_change',
         description: `商品 ${product.name} のステータスが ${status} に変更されました`,
         userId: user.id,
-        productId,
+        productId: product.id,
         metadata: JSON.stringify({
           fromStatus: product.status,
           toStatus: mappedStatus,
