@@ -1,13 +1,15 @@
-'use client';
+﻿'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import LocationList from '@/app/components/features/location/LocationList';
 import LocationRegistration from '@/app/components/features/location/LocationRegistration';
 import LocationScanner from '@/app/components/features/LocationScanner';
 import LocationOptimizationModal from '@/app/components/LocationOptimizationModal';
 import InventoryCountModal from '@/app/components/InventoryCountModal';
 import NexusButton from '@/app/components/ui/NexusButton';
+import { useModal } from '@/app/components/ui/ModalContext';
 import {
   SparklesIcon,
   ClipboardDocumentListIcon,
@@ -28,11 +30,13 @@ interface LocationStats {
 }
 
 export default function LocationPage() {
+  const scannerModalRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'register' | 'analytics'>('overview');
   const [isOptimizationModalOpen, setIsOptimizationModalOpen] = useState(false);
   const [isCountModalOpen, setIsCountModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
+  const { setIsAnyModalOpen } = useModal();
   const [stats, setStats] = useState<LocationStats>({
     totalLocations: 24,
     occupiedLocations: 18,
@@ -40,11 +44,37 @@ export default function LocationPage() {
     usedCapacity: 342,
     criticalLocations: 3
   });
+
+  // 独自実装モーダルの業務フロー制御
+  useEffect(() => {
+    if (isScannerOpen) {
+      setIsAnyModalOpen(true);
+    } else {
+      setIsAnyModalOpen(false);
+    }
+  }, [isScannerOpen, setIsAnyModalOpen]);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // スキャナーモーダルのスクロール位置リセット
+  useEffect(() => {
+    if (isScannerOpen) {
+      // ページ全体を最上部にスクロール - 正しいスクロールコンテナを対象
+      const scrollContainer = document.querySelector('.page-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+      } else {
+        window.scrollTo(0, 0);
+      }
+      
+      if (scannerModalRef.current) {
+        scannerModalRef.current.scrollTop = 0;
+      }
+    }
+  }, [isScannerOpen]);
 
   const handleOptimizeLocations = () => {
     setIsOptimizationModalOpen(true);
@@ -62,77 +92,69 @@ export default function LocationPage() {
     return null;
   }
 
+  const headerActions = (
+    <>
+      <NexusButton
+        onClick={handleQuickScan}
+        variant="default"
+        size="md"
+        data-testid="location-scan-button"
+        icon={<QrCodeIcon className="w-5 h-5" />}
+      >
+        <span className="hidden sm:inline">スキャン</span>
+        <span className="sm:hidden">スキャン</span>
+      </NexusButton>
+      <NexusButton
+        onClick={handleOptimizeLocations}
+        variant="default"
+        size="md"
+        data-testid="location-optimize-button"
+        icon={<SparklesIcon className="w-5 h-5" />}
+      >
+        <span className="hidden sm:inline">最適化</span>
+        <span className="sm:hidden">最適化</span>
+      </NexusButton>
+      <NexusButton
+        onClick={handleStartInventoryCount}
+        variant="primary"
+        size="md"
+        data-testid="inventory-count-button"
+        icon={<ClipboardDocumentListIcon className="w-5 h-5" />}
+      >
+        <span className="hidden sm:inline">棚卸し</span>
+        <span className="sm:hidden">棚卸し</span>
+      </NexusButton>
+    </>
+  );
+
   const occupancyRate = Math.round((stats.usedCapacity / stats.totalCapacity) * 100);
   const utilizationRate = Math.round((stats.occupiedLocations / stats.totalLocations) * 100);
 
   return (
     <DashboardLayout userType="staff">
       <div className="space-y-6">
-        {/* Enhanced Header with Quick Stats */}
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="ロケーション管理"
+          subtitle="倉庫内の商品配置を効率的に管理・最適化"
+          userType="staff"
+          iconType="location"
+          actions={headerActions}
+        />
+
+        {/* Quick Search Bar */}
         <div className="intelligence-card global">
-          <div className="p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              {/* Title and Description */}
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <CubeIcon className="w-8 h-8 text-nexus-yellow" />
-                  <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                    ロケーション管理
-                  </h1>
-                </div>
-                <p className="text-nexus-text-secondary">
-                  倉庫内の商品配置を効率的に管理・最適化
-                </p>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 lg:flex-shrink-0">
-                <NexusButton
-                  onClick={handleQuickScan}
-                  variant="default"
-                  size="md"
-                  data-testid="location-scan-button"
-                  icon={<QrCodeIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">スキャン</span>
-                  <span className="sm:hidden">スキャン</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={handleOptimizeLocations}
-                  variant="default"
-                  size="md"
-                  data-testid="location-optimize-button"
-                  icon={<SparklesIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">最適化</span>
-                  <span className="sm:hidden">最適化</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={handleStartInventoryCount}
-                  variant="primary"
-                  size="md"
-                  data-testid="inventory-count-button"
-                  icon={<ClipboardDocumentListIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">棚卸し</span>
-                  <span className="sm:hidden">棚卸し</span>
-                </NexusButton>
-              </div>
-            </div>
-
-            {/* Quick Search Bar */}
-            <div className="mt-6 pt-6 border-t border-nexus-border">
-              <div className="flex-1 max-w-[1600px]">
-                <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-nexus-text-secondary" />
-                  <input
-                    type="text"
-                    value={quickSearch}
-                    onChange={(e) => setQuickSearch(e.target.value)}
-                    placeholder="ロケーション、商品、SKUで検索..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-nexus-bg-secondary border border-nexus-border rounded-lg focus:outline-none focus:border-nexus-yellow focus:ring-2 focus:ring-nexus-yellow/20 text-nexus-text-primary transition-all duration-200"
-                  />
-                </div>
+          <div className="p-5">
+            <div className="flex-1 max-w-[1600px]">
+              <div className="relative">
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-nexus-text-secondary" />
+                <input
+                  type="text"
+                  value={quickSearch}
+                  onChange={(e) => setQuickSearch(e.target.value)}
+                  placeholder="ロケーション、商品、SKUで検索..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-nexus-bg-secondary border border-nexus-border rounded-lg focus:outline-none focus:border-nexus-yellow focus:ring-2 focus:ring-nexus-yellow/20 text-nexus-text-primary transition-all duration-200"
+                />
               </div>
             </div>
           </div>
@@ -142,7 +164,7 @@ export default function LocationPage() {
         <div className="intelligence-metrics">
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
             <div className="intelligence-card global">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-2 sm:mb-4">
                   <div className="action-orb w-6 h-6 sm:w-8 sm:h-8">
                     <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +183,7 @@ export default function LocationPage() {
             </div>
 
             <div className="intelligence-card americas">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-2 sm:mb-4">
                   <div className="action-orb green w-6 h-6 sm:w-8 sm:h-8">
                     <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -180,7 +202,7 @@ export default function LocationPage() {
             </div>
 
             <div className="intelligence-card europe">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-2 sm:mb-4">
                   <div className="action-orb blue w-6 h-6 sm:w-8 sm:h-8">
                     <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,7 +221,7 @@ export default function LocationPage() {
             </div>
 
             <div className="intelligence-card asia">
-              <div className="p-8">
+              <div className="p-5">
                 <div className="flex items-center justify-between mb-2 sm:mb-4">
                   <div className="action-orb red w-6 h-6 sm:w-8 sm:h-8">
                     <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -267,7 +289,7 @@ export default function LocationPage() {
 
           {activeTab === 'analytics' && (
             <div className="intelligence-card asia">
-              <div className="p-8 text-center">
+              <div className="p-5 text-center">
                 <ChartBarIcon className="w-16 h-16 text-nexus-text-secondary mx-auto mb-4" />
                 <h3 className="text-xl font-bold text-nexus-text-primary mb-2">
                   分析・レポート機能
@@ -325,9 +347,9 @@ export default function LocationPage() {
 
         {/* Scanner Modal */}
         {isScannerOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9000] p-4">
-            <div className="intelligence-card global max-w-[1600px] w-full">
-              <div className="p-8">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[10001] p-4 pt-8">
+            <div className="intelligence-card global max-w-[1600px] w-full max-h-[90vh] overflow-hidden">
+              <div className="p-5 overflow-y-auto max-h-full" ref={scannerModalRef}>
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-nexus-text-primary">バーコードスキャン</h3>
                   <button

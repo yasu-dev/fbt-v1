@@ -1,8 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { BaseModal, NexusButton, BusinessStatusIndicator } from '../ui';
 import { useToast } from '../features/notifications/ToastProvider';
+import ShippingLabelUploadModal from './ShippingLabelUploadModal';
+import PackingVideoModal from './PackingVideoModal';
+import CarrierSelectionModal from './CarrierSelectionModal';
+
 import { 
   TruckIcon, 
   PrinterIcon, 
@@ -11,7 +15,11 @@ import {
   MapPinIcon,
   UserIcon,
   DocumentTextIcon,
-  BanknotesIcon
+  BanknotesIcon,
+  DocumentArrowUpIcon,
+  DocumentCheckIcon,
+  PhotoIcon,
+  VideoCameraIcon
 } from '@heroicons/react/24/outline';
 
 interface ShippingItem {
@@ -21,13 +29,18 @@ interface ShippingItem {
   orderNumber: string;
   customer: string;
   shippingAddress: string;
-  status: 'pending_inspection' | 'inspected' | 'packed' | 'shipped' | 'delivered';
+  status: 'storage' | 'packed' | 'shipped' | 'ready_for_pickup';
   priority: 'urgent' | 'normal' | 'low';
   dueDate: string;
   inspectionNotes?: string;
   trackingNumber?: string;
   shippingMethod: string;
   value: number;
+  location?: string;
+  shippingLabelUrl?: string;
+  shippingLabelProvider?: 'seller' | 'worlddoor';
+  productImages?: string[];
+  inspectionImages?: string[];
 }
 
 interface ShippingDetailModalProps {
@@ -44,20 +57,33 @@ export default function ShippingDetailModal({
   onClose,
   item,
   onStatusUpdate,
-  onPrintLabel,
   onPackingInstruction
 }: ShippingDetailModalProps) {
-  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'notes'>('details');
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'notes' | 'images'>('details');
   const { showToast } = useToast();
+  const [isLabelUploadModalOpen, setIsLabelUploadModalOpen] = useState(false);
+  const [shippingLabelUrl, setShippingLabelUrl] = useState<string | null>(item?.shippingLabelUrl || null);
+  const [shippingLabelProvider, setShippingLabelProvider] = useState<'seller' | 'worlddoor' | null>(
+    item?.shippingLabelProvider || null
+  );
+  const [isPackingVideoModalOpen, setIsPackingVideoModalOpen] = useState(false);
+  const [isCarrierSelectionModalOpen, setIsCarrierSelectionModalOpen] = useState(false);
+
+  // スクロール位置のリセット
+  useEffect(() => {
+    if (isOpen && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [isOpen]);
 
   if (!isOpen || !item) return null;
 
   const statusLabels: Record<string, string> = {
-    'pending_inspection': '検査待ち',
-    'inspected': '検査済み',
+    'storage': '保管中',
     'packed': '梱包済み',
-    'shipped': '発送済み',
-    'delivered': '配送完了'
+    'shipped': '出荷済み',
+    'ready_for_pickup': '集荷準備中'
   };
 
   const priorityLabels: Record<string, string> = {
@@ -67,7 +93,7 @@ export default function ShippingDetailModal({
   };
 
   const getAvailableStatuses = (currentStatus: ShippingItem['status']): ShippingItem['status'][] => {
-    const allStatuses: ShippingItem['status'][] = ['pending_inspection', 'inspected', 'packed', 'shipped', 'delivered'];
+    const allStatuses: ShippingItem['status'][] = ['storage', 'packed', 'shipped'];
     const currentIndex = allStatuses.indexOf(currentStatus);
     const availableStatuses = allStatuses.filter((_, index) => index > currentIndex);
     console.log('getAvailableStatuses:', { currentStatus, currentIndex, availableStatuses });
@@ -86,25 +112,141 @@ export default function ShippingDetailModal({
     });
   };
 
-  const handlePrintLabel = () => {
-    if (onPrintLabel) {
-      onPrintLabel(item);
+  const handlePackingVideoComplete = () => {
+    setIsPackingVideoModalOpen(false);
+    
+    // ステータスを梱包済みに更新
+    if (onStatusUpdate) {
+      onStatusUpdate(item.id, 'packed');
     }
+    
     showToast({
-      title: '印刷開始',
-      message: `${item.productName}の配送ラベルを印刷します`,
-      type: 'info'
+      title: '梱包完了',
+      message: `${item.productName}の梱包が完了しました`,
+      type: 'success'
     });
   };
 
-  const handlePackingInstruction = () => {
-    if (onPackingInstruction) {
-      onPackingInstruction(item);
+  const handlePrintLabel = () => {
+    // 配送業者選択モーダルを開く
+    setIsCarrierSelectionModalOpen(true);
+  };
+
+  const handleCarrierSelect = async (carrier: any, service: string) => {
+    try {
+      showToast({
+        title: 'ラベル生成中',
+        message: `${carrier.name}のラベルを生成しています...`,
+        type: 'info'
+      });
+
+      let labelData: string;
+      let trackingNumber: string = '';
+
+      if (carrier.id === 'fedex') {
+        // FedEx API連携でラベル生成（内部API経由）
+        const response = await fetch('/api/shipping/fedex', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            item: item,
+            service: service
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'FedEx APIエラー');
+        }
+
+        const result = await response.json();
+        labelData = result.labelData;
+        trackingNumber = result.trackingNumber;
+        
+        showToast({
+          title: result.isMock ? 'モック配送ラベル生成' : 'API連携成功',
+          message: result.message || `追跡番号: ${trackingNumber}`,
+          type: result.isMock ? 'info' : 'success'
+        });
+      } else {
+        // 汎用PDFラベル生成
+        const response = await fetch('/api/pdf/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'shipping-label',
+            data: {
+              orderId: item.id,
+              orderNumber: item.orderNumber,
+              productName: item.productName,
+              productSku: item.productSku,
+              customer: item.customer,
+              shippingAddress: item.shippingAddress,
+              shippingMethod: item.shippingMethod,
+              value: item.value
+            },
+            carrier: carrier.id,
+            service: service
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('配送ラベルの生成に失敗しました');
+        }
+
+        const result = await response.json();
+        labelData = result.base64Data;
+      }
+
+      // PDFをダウンロード
+      const link = document.createElement('a');
+      link.href = `data:application/pdf;base64,${labelData}`;
+      link.download = `shipping_label_${item.orderNumber}_${carrier.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showToast({
+        title: 'ラベル生成完了',
+        message: `${carrier.name}の配送ラベルを生成しました`,
+        type: 'success'
+      });
+
+      // モーダルを閉じる
+      setIsCarrierSelectionModalOpen(false);
+
+      // 親コンポーネントには通知なし（モーダル内で完結）
+
+    } catch (error) {
+      console.error('ラベル生成エラー:', error);
+      showToast({
+        title: 'エラー',
+        message: 'ラベル生成に失敗しました。もう一度お試しください。',
+        type: 'error'
+      });
     }
+  };
+
+  const handlePackingInstruction = () => {
+    setIsPackingVideoModalOpen(true);
+  };
+
+  const handleLabelUploadComplete = (labelUrl: string, provider: 'seller' | 'worlddoor') => {
+    setShippingLabelUrl(labelUrl);
+    setShippingLabelProvider(provider);
+    setIsLabelUploadModalOpen(false);
+    
+    // 実際の実装では、ここでAPIを呼び出して商品情報を更新
+    // updateShippingItem(item.id, { shippingLabelUrl: labelUrl, shippingLabelProvider: provider });
+    
     showToast({
-      title: '梱包指示',
-      message: `${item.productName}の梱包指示を開始します`,
-      type: 'info'
+      title: '伝票アップロード完了',
+      message: `${provider === 'seller' ? 'セラー' : 'ワールドドア社'}の伝票がアップロードされました`,
+      type: 'success'
     });
   };
 
@@ -131,6 +273,7 @@ export default function ShippingDetailModal({
   ];
 
   return (
+    <>
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
@@ -168,11 +311,12 @@ export default function ShippingDetailModal({
         {/* Tabs */}
         <div className="border-b border-nexus-border mb-6">
           <nav className="flex space-x-8">
-            {[
-              { id: 'details', label: '詳細情報', icon: DocumentTextIcon },
-              { id: 'history', label: '履歴', icon: ClockIcon },
-              { id: 'notes', label: '備考', icon: DocumentTextIcon }
-            ].map((tab) => (
+            {              [
+                { id: 'details', label: '詳細情報', icon: DocumentTextIcon },
+                { id: 'history', label: '履歴', icon: ClockIcon },
+                { id: 'notes', label: '備考', icon: DocumentTextIcon },
+                { id: 'images', label: '画像', icon: PhotoIcon }
+              ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
@@ -190,82 +334,128 @@ export default function ShippingDetailModal({
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto max-h-[50vh] mb-6">
+        <div className="overflow-y-auto max-h-[50vh] mb-6" ref={scrollContainerRef}>
           {activeTab === 'details' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* 注文情報 */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-nexus-text-primary flex items-center gap-2">
-                  <UserIcon className="w-5 h-5" />
-                  注文情報
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      注文番号
-                    </label>
-                    <p className="text-nexus-text-primary">{item.orderNumber}</p>
+            <div className="space-y-6">
+              {/* 保管場所を大きく表示 */}
+              {item.location && (
+                <div className="bg-nexus-bg-secondary rounded-lg p-6 border-2 border-nexus-blue">
+                  <div className="flex items-center gap-3 mb-2">
+                    <MapPinIcon className="w-6 h-6 text-nexus-blue" />
+                    <h3 className="text-lg font-semibold text-nexus-text-primary">
+                      商品保管場所
+                    </h3>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      お客様
-                    </label>
-                    <p className="text-nexus-text-primary font-medium">{item.customer}</p>
+                  <div className="text-3xl font-bold text-nexus-blue font-mono">
+                    {item.location}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      出荷期限
-                    </label>
-                    <p className="text-nexus-text-primary">{item.dueDate}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      商品価値
-                    </label>
-                    <p className="text-nexus-text-primary font-display font-bold text-lg">
-                      ¥{item.value.toLocaleString()}
-                    </p>
-                  </div>
+                  <p className="text-sm text-nexus-text-secondary mt-2">
+                    この場所から商品をピックアップしてください
+                  </p>
                 </div>
-              </div>
-
-              {/* 配送情報 */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-nexus-text-primary flex items-center gap-2">
-                  <MapPinIcon className="w-5 h-5" />
-                  配送情報
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      配送先住所
-                    </label>
-                    <p className="text-nexus-text-primary">{item.shippingAddress}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                      配送方法
-                    </label>
-                    <p className="text-nexus-text-primary">{item.shippingMethod}</p>
-                  </div>
-                  {item.trackingNumber && (
+              )}
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* 注文情報 */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-nexus-text-primary flex items-center gap-2">
+                    <UserIcon className="w-5 h-5" />
+                    注文情報
+                  </h3>
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                        追跡番号
+                        注文番号
                       </label>
-                      <p className="text-nexus-text-primary">
-                        <span className="cert-nano cert-mint">{item.trackingNumber}</span>
+                      <p className="text-nexus-text-primary">{item.orderNumber}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                        お客様
+                      </label>
+                      <p className="text-nexus-text-primary font-medium">{item.customer}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                        出荷期限
+                      </label>
+                      <p className="text-nexus-text-primary">{item.dueDate}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                        商品価値
+                      </label>
+                      <p className="text-nexus-text-primary font-display font-bold text-lg">
+                        ¥{item.value.toLocaleString()}
                       </p>
                     </div>
-                  )}
-                  {item.inspectionNotes && (
+                  </div>
+                </div>
+
+                {/* 配送情報 */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-nexus-text-primary flex items-center gap-2">
+                    <MapPinIcon className="w-5 h-5" />
+                    配送情報
+                  </h3>
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
-                        検品メモ
+                        配送先住所
                       </label>
-                      <p className="text-nexus-text-primary">{item.inspectionNotes}</p>
+                      <p className="text-nexus-text-primary">{item.shippingAddress}</p>
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                        配送方法
+                      </label>
+                      <p className="text-nexus-text-primary">{item.shippingMethod}</p>
+                    </div>
+                    {item.trackingNumber && (
+                      <div>
+                        <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                          追跡番号
+                        </label>
+                        <p className="text-nexus-text-primary">
+                          <span className="cert-nano cert-mint">{item.trackingNumber}</span>
+                        </p>
+                      </div>
+                    )}
+                    {item.inspectionNotes && (
+                      <div>
+                        <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                          検品メモ
+                        </label>
+                        <p className="text-nexus-text-primary">{item.inspectionNotes}</p>
+                      </div>
+                    )}
+                    
+                    {/* 伝票情報 */}
+                    <div>
+                      <label className="block text-sm font-medium text-nexus-text-secondary mb-1">
+                        配送伝票
+                      </label>
+                      {shippingLabelUrl ? (
+                        <div className="flex items-center gap-2">
+                          <DocumentCheckIcon className="w-5 h-5 text-green-600" />
+                          <span className="text-sm text-nexus-text-primary">
+                            {shippingLabelProvider === 'seller' ? 'セラー' : 'ワールドドア社'}が用意
+                          </span>
+                          <NexusButton
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => window.open(shippingLabelUrl, '_blank')}
+                          >
+                            表示
+                          </NexusButton>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-nexus-text-secondary">
+                          未アップロード
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -315,17 +505,81 @@ export default function ShippingDetailModal({
                   <p className="text-yellow-700 text-sm mt-1">
                     商品価値が50万円を超えています。取り扱いには十分注意し、保険付き配送を推奨します。
                   </p>
+                              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'images' && (
+          <div className="space-y-6">
+            {/* 納品時画像 */}
+            <div>
+              <h3 className="text-lg font-semibold text-nexus-text-primary mb-4">
+                納品時画像
+              </h3>
+              {item.productImages && item.productImages.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {item.productImages.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={image || '/api/placeholder/200/200'}
+                        alt={`納品時画像 ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(image, '_blank')}
+                      />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center">
+                        <span className="text-white opacity-0 group-hover:opacity-100 text-sm">
+                          クリックして拡大
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-nexus-bg-secondary rounded-lg p-8 text-center">
+                  <p className="text-nexus-text-secondary">納品時画像がありません</p>
                 </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* 検品時画像 */}
+            <div>
+              <h3 className="text-lg font-semibold text-nexus-text-primary mb-4">
+                検品時画像
+              </h3>
+              {item.inspectionImages && item.inspectionImages.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {item.inspectionImages.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={image || '/api/placeholder/200/200'}
+                        alt={`検品時画像 ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(image, '_blank')}
+                      />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center">
+                        <span className="text-white opacity-0 group-hover:opacity-100 text-sm">
+                          クリックして拡大
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-nexus-bg-secondary rounded-lg p-8 text-center">
+                  <p className="text-nexus-text-secondary">検品時画像がありません</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
         {/* Action Buttons */}
         <div className="border-t border-nexus-border pt-6">
           <div className="space-y-6">
             {/* ステータス変更セクション */}
-            {item.status !== 'delivered' && (
+            {item.status !== 'shipped' && (
               <div>
                 <h4 className="text-sm font-medium text-nexus-text-secondary mb-3">
                   ステータス変更
@@ -359,31 +613,42 @@ export default function ShippingDetailModal({
               </div>
             )}
 
-            {/* アクションボタン群 */}
+            {/* アクションボタン */}
             <div>
               <h4 className="text-sm font-medium text-nexus-text-secondary mb-3">
-                操作
+                アクション
               </h4>
-              <div className="flex flex-wrap gap-3">
-                {item.status === 'inspected' && (
+              <div className="flex flex-wrap gap-2">
+                {/* 伝票アップロードボタン */}
+                {item.status !== 'shipped' && (
                   <NexusButton
-                    onClick={handlePackingInstruction}
-                    variant="default"
-                    className="flex items-center gap-2"
+                    onClick={() => setIsLabelUploadModalOpen(true)}
+                    variant={shippingLabelUrl ? 'secondary' : 'primary'}
+                    size="sm"
+                    icon={<DocumentArrowUpIcon className="w-4 h-4" />}
                   >
-                    <ArchiveBoxIcon className="w-4 h-4" />
-                    梱包指示
+                    {shippingLabelUrl ? '伝票を再アップロード' : '伝票をアップロード'}
                   </NexusButton>
                 )}
                 
+                {item.status === 'storage' && (
+                  <NexusButton
+                    onClick={handlePackingInstruction}
+                    variant="secondary"
+                    size="sm"
+                    icon={<VideoCameraIcon className="w-4 h-4" />}
+                  >
+                    梱包動画記録
+                  </NexusButton>
+                )}
                 {item.status === 'packed' && (
                   <NexusButton
                     onClick={handlePrintLabel}
-                    variant="default"
-                    className="flex items-center gap-2"
+                    variant="secondary"
+                    size="sm"
+                    icon={<PrinterIcon className="w-4 h-4" />}
                   >
-                    <PrinterIcon className="w-4 h-4" />
-                    配送ラベル印刷
+                    ラベル印刷
                   </NexusButton>
                 )}
 
@@ -420,5 +685,30 @@ export default function ShippingDetailModal({
         </div>
       </div>
     </BaseModal>
+    
+    {/* 伝票アップロードモーダル */}
+    <ShippingLabelUploadModal
+      isOpen={isLabelUploadModalOpen}
+      onClose={() => setIsLabelUploadModalOpen(false)}
+      itemId={item.id}
+      onUploadComplete={handleLabelUploadComplete}
+    />
+    {/* 梱包動画記録モーダル */}
+    <PackingVideoModal
+      isOpen={isPackingVideoModalOpen}
+      onClose={() => setIsPackingVideoModalOpen(false)}
+      productId={item.id}
+      productName={item.productName}
+      onComplete={handlePackingVideoComplete}
+    />
+
+    {/* 配送業者選択モーダル */}
+    <CarrierSelectionModal
+      isOpen={isCarrierSelectionModalOpen}
+      onClose={() => setIsCarrierSelectionModalOpen(false)}
+      onCarrierSelect={handleCarrierSelect}
+      item={item}
+    />
+    </>
   );
 } 

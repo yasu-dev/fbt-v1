@@ -1,13 +1,13 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import { ContentCard, NexusLoadingSpinner } from '@/app/components/ui';
 import { BusinessStatusIndicator } from '@/app/components/ui/StatusIndicator';
 import { ReturnInspection } from '@/app/components/features/returns/ReturnInspection';
 import { ReturnRelistingFlow } from '@/app/components/features/returns/ReturnRelistingFlow';
-import { ReturnReasonAnalysis } from '@/app/components/features/returns/ReturnReasonAnalysis';
 import { ArchiveBoxIcon, ClockIcon, ArrowTrendingUpIcon, ExclamationCircleIcon, ChevronLeftIcon } from '@heroicons/react/24/outline';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 import BaseModal from '@/app/components/ui/BaseModal';
@@ -54,8 +54,12 @@ export default function ReturnsPage() {
   const [viewMode, setViewMode] = useState<'list' | 'inspection' | 'history'>('list');
   const [filter, setFilter] = useState<'all' | 'pending' | 'inspecting' | 'completed'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<'inspection' | 'relisting' | 'analysis'>('inspection');
+
   const [isUnsellableModalOpen, setIsUnsellableModalOpen] = useState(false);
+  const [isRelistingModalOpen, setIsRelistingModalOpen] = useState(false);
+  const [selectedRelistingItem, setSelectedRelistingItem] = useState<ReturnItem | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedDetailItem, setSelectedDetailItem] = useState<ReturnItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -113,11 +117,13 @@ export default function ReturnsPage() {
   }, [mounted]);
 
   const handleStartInspection = (returnItem: ReturnItem) => {
-    setSelectedReturn(returnItem);
-    setViewMode('inspection');
-    setInspectionPhotos([]);
-    setInspectionNote('');
-    setFinalDecision('');
+    setSelectedRelistingItem(returnItem);
+    setIsRelistingModalOpen(true);
+    showToast({
+      title: '検品開始',
+      message: `${returnItem.productName}の検品・再出品業務フローを開始します`,
+      type: 'info'
+    });
   };
 
   const handlePhotoUpload = (files: FileList | null) => {
@@ -145,7 +151,7 @@ export default function ReturnsPage() {
     
     showToast({
       title: '検品完了',
-      message: `${selectedReturn.productName}の返品検品が完了しました (判定: ${getDecisionLabel(finalDecision)})`,
+      message: `${selectedReturn.productName}の返品検品が完了しました (判定: ${getDecisionLabel(finalDecision)}) (倉庫保管中)`,
       type: 'success'
     });
     
@@ -184,11 +190,8 @@ export default function ReturnsPage() {
   };
 
   const handleViewDetails = (returnItem: ReturnItem) => {
-    showToast({
-      title: '返品詳細',
-      message: `注文: ${returnItem.orderId}\n商品: ${returnItem.productName}\n顧客: ${returnItem.customer}\n理由: ${returnItem.returnReason}\nメモ: ${returnItem.customerNote}`,
-      type: 'info'
-    });
+    setSelectedDetailItem(returnItem);
+    setIsDetailModalOpen(true);
   };
 
   const handleApproveReturn = (returnItem: ReturnItem) => {
@@ -215,20 +218,36 @@ export default function ReturnsPage() {
     });
   };
 
+  const handleStartRelisting = (returnItem: ReturnItem) => {
+    setSelectedRelistingItem(returnItem);
+    setIsRelistingModalOpen(true);
+    showToast({
+      title: '再出品業務フロー',
+      message: `${returnItem.productName}の再出品業務フローを開始します`,
+      type: 'info'
+    });
+  };
+
+  const headerActions = (
+    <NexusButton
+      onClick={() => setIsUnsellableModalOpen(true)}
+      variant="primary"
+      icon={<ExclamationCircleIcon className="w-5 h-5" />}
+    >
+      再販不可リスト
+    </NexusButton>
+  );
+
   if (!mounted) {
     return (
       <DashboardLayout userType="staff">
         <div className="space-y-6">
-          <div className="intelligence-card global">
-            <div className="p-8">
-              <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                返品処理
-              </h1>
-              <p className="mt-1 text-sm text-nexus-text-secondary">
-                返品商品の検品と再出品を管理します
-              </p>
-            </div>
-          </div>
+          <UnifiedPageHeader
+            title="返品処理"
+            subtitle="返品商品の検品と再出品を管理します"
+            userType="staff"
+            iconType="returns"
+          />
           <div className="flex items-center justify-center min-h-[400px]">
             <NexusLoadingSpinner size="lg" />
           </div>
@@ -241,16 +260,11 @@ export default function ReturnsPage() {
     return (
       <DashboardLayout userType="staff">
         <div className="space-y-6">
-          <div className="intelligence-card global">
-            <div className="p-8">
-              <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                返品処理
-              </h1>
-              <p className="mt-1 text-sm text-nexus-text-secondary">
-                返品商品の検品と再出品を管理します
-              </p>
-            </div>
-          </div>
+          <UnifiedPageHeader
+            title="返品処理"
+            subtitle="返品商品の検品と再出品を管理します"
+            userType="staff"
+          />
           <div className="flex items-center justify-center min-h-[400px]">
             <NexusLoadingSpinner size="lg" />
           </div>
@@ -263,16 +277,11 @@ export default function ReturnsPage() {
     return (
       <DashboardLayout userType="staff">
         <div className="space-y-6">
-          <div className="intelligence-card global">
-            <div className="p-8">
-              <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                返品処理
-              </h1>
-              <p className="mt-1 text-sm text-nexus-text-secondary">
-                返品商品の検品と再出品を管理します
-              </p>
-            </div>
-          </div>
+          <UnifiedPageHeader
+            title="返品処理"
+            subtitle="返品商品の検品と再出品を管理します"
+            userType="staff"
+          />
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="text-center">
               <ExclamationCircleIcon className="w-16 h-16 text-nexus-red mx-auto mb-4" />
@@ -344,72 +353,19 @@ export default function ReturnsPage() {
   return (
     <DashboardLayout userType="staff">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="intelligence-card global">
-          <div className="p-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                  返品処理
-                </h1>
-                <p className="mt-1 text-sm text-nexus-text-secondary">
-                  顧客からの返品リクエストを処理
-                </p>
-              </div>
-              <div className="flex">
-                <NexusButton
-                  onClick={() => setIsUnsellableModalOpen(true)}
-                  variant="primary"
-                  icon={<ExclamationCircleIcon className="w-5 h-5" />}
-                >
-                  再販不可リスト
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="返品処理"
+          subtitle="顧客からの返品リクエストを処理"
+          userType="staff"
+          iconType="returns"
+          actions={headerActions}
+        />
 
-        {/* タブナビゲーション */}
-        <ContentCard className="mb-6">
-          <div className="border-b border-nexus-border">
-            <nav className="-mb-px flex space-x-8 px-6">
-              <button
-                onClick={() => setActiveTab('inspection')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'inspection'
-                    ? 'border-nexus-blue text-nexus-blue'
-                    : 'border-transparent text-nexus-text-secondary hover:text-nexus-text-primary hover:border-nexus-border'
-                }`}
-              >
-                返品検品
-              </button>
-              <button
-                onClick={() => setActiveTab('relisting')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'relisting'
-                    ? 'border-nexus-blue text-nexus-blue'
-                    : 'border-transparent text-nexus-text-secondary hover:text-nexus-text-primary hover:border-nexus-border'
-                }`}
-              >
-                再出品業務フロー
-              </button>
-              <button
-                onClick={() => setActiveTab('analysis')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'analysis'
-                    ? 'border-nexus-blue text-nexus-blue'
-                    : 'border-transparent text-nexus-text-secondary hover:text-nexus-text-primary hover:border-nexus-border'
-                }`}
-              >
-                返品理由分析
-              </button>
-            </nav>
-          </div>
-        </ContentCard>
 
-        {/* タブコンテンツ */}
-        {activeTab === 'inspection' && (
-          <div className="space-y-6">
+
+        {/* 返品検品メインコンテンツ */}
+        <div className="space-y-6">
             {selectedReturn ? (
               <>
                 <button
@@ -427,7 +383,7 @@ export default function ReturnsPage() {
                 <div className="intelligence-metrics">
                   <div className="unified-grid-4">
                     <div className="intelligence-card americas">
-                      <div className="p-8">
+                      <div className="p-5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-nexus-text-secondary">本日の返品</p>
@@ -442,7 +398,7 @@ export default function ReturnsPage() {
                     </div>
                     
                     <div className="intelligence-card europe">
-                      <div className="p-8">
+                      <div className="p-5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-nexus-text-secondary">検品待ち</p>
@@ -457,7 +413,7 @@ export default function ReturnsPage() {
                     </div>
                     
                     <div className="intelligence-card asia">
-                      <div className="p-8">
+                      <div className="p-5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-nexus-text-secondary">返品率</p>
@@ -472,7 +428,7 @@ export default function ReturnsPage() {
                     </div>
                     
                     <div className="intelligence-card africa">
-                      <div className="p-8">
+                      <div className="p-5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-nexus-text-secondary">平均処理時間</p>
@@ -490,47 +446,47 @@ export default function ReturnsPage() {
 
                 {/* 返品リスト */}
                 <div className="intelligence-card global">
-                  <div className="p-8">
+                  <div className="p-5">
                     <h2 className="text-xl font-display font-bold text-nexus-text-primary mb-6">返品商品リスト</h2>
                     
                     {/* フィルター */}
-                    <div className="flex gap-2 mb-6">
+                    <div className="flex gap-1 bg-nexus-bg-secondary p-1 rounded-lg mb-6">
                       <button
                         onClick={() => setFilter('all')}
-                        className={`px-4 py-2 rounded-lg transition-colors ${
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                           filter === 'all' 
-                            ? 'bg-nexus-primary text-white' 
-                            : 'bg-nexus-bg-secondary text-nexus-text-secondary hover:bg-nexus-bg-tertiary'
+                            ? 'bg-nexus-bg-primary text-nexus-yellow shadow-sm' 
+                            : 'text-nexus-text-secondary hover:text-nexus-text-primary'
                         }`}
                       >
                         すべて
                       </button>
                       <button
                         onClick={() => setFilter('pending')}
-                        className={`px-4 py-2 rounded-lg transition-colors ${
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                           filter === 'pending' 
-                            ? 'bg-nexus-primary text-white' 
-                            : 'bg-nexus-bg-secondary text-nexus-text-secondary hover:bg-nexus-bg-tertiary'
+                            ? 'bg-nexus-bg-primary text-nexus-yellow shadow-sm' 
+                            : 'text-nexus-text-secondary hover:text-nexus-text-primary'
                         }`}
                       >
                         検品待ち
                       </button>
                       <button
                         onClick={() => setFilter('inspecting')}
-                        className={`px-4 py-2 rounded-lg transition-colors ${
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                           filter === 'inspecting' 
-                            ? 'bg-nexus-primary text-white' 
-                            : 'bg-nexus-bg-secondary text-nexus-text-secondary hover:bg-nexus-bg-tertiary'
+                            ? 'bg-nexus-bg-primary text-nexus-yellow shadow-sm' 
+                            : 'text-nexus-text-secondary hover:text-nexus-text-primary'
                         }`}
                       >
                         検品中
                       </button>
                       <button
                         onClick={() => setFilter('completed')}
-                        className={`px-4 py-2 rounded-lg transition-colors ${
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                           filter === 'completed' 
-                            ? 'bg-nexus-primary text-white' 
-                            : 'bg-nexus-bg-secondary text-nexus-text-secondary hover:bg-nexus-bg-tertiary'
+                            ? 'bg-nexus-bg-primary text-nexus-yellow shadow-sm' 
+                            : 'text-nexus-text-secondary hover:text-nexus-text-primary'
                         }`}
                       >
                         完了
@@ -609,6 +565,14 @@ export default function ReturnsPage() {
                                       返金処理
                                     </button>
                                   )}
+                                  {item.status === 'refunded' && (
+                                    <button
+                                      onClick={() => handleStartRelisting(item)}
+                                      className="nexus-button primary text-sm"
+                                    >
+                                      再出品
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -621,10 +585,8 @@ export default function ReturnsPage() {
               </>
             )}
           </div>
-        )}
 
-        {activeTab === 'relisting' && <ReturnRelistingFlow />}
-        {activeTab === 'analysis' && <ReturnReasonAnalysis />}
+
 
         {/* Unsellable Items Modal */}
         <BaseModal
@@ -682,6 +644,137 @@ export default function ReturnsPage() {
                 詳細管理画面へ
               </NexusButton>
             </div>
+          </div>
+        </BaseModal>
+
+        {/* 再出品業務フローモーダル */}
+        <BaseModal
+          isOpen={isRelistingModalOpen}
+          onClose={() => {
+            setIsRelistingModalOpen(false);
+            setSelectedRelistingItem(null);
+          }}
+          title={`再出品業務フロー - ${selectedRelistingItem?.productName || ''}`}
+          size="lg"
+        >
+          <div className="space-y-3">
+            {selectedRelistingItem && (
+              <ReturnRelistingFlow />
+            )}
+          </div>
+        </BaseModal>
+
+        {/* 詳細表示モーダル */}
+        <BaseModal
+          isOpen={isDetailModalOpen}
+          onClose={() => {
+            setIsDetailModalOpen(false);
+            setSelectedDetailItem(null);
+          }}
+          title={`返品詳細 - ${selectedDetailItem?.productName || ''}`}
+          size="lg"
+        >
+          <div className="space-y-3">
+            {selectedDetailItem && (
+              <div className="space-y-3">
+                {/* 基本情報 */}
+                <div className="intelligence-card global">
+                  <div className="p-4">
+                    <h3 className="text-base font-semibold text-nexus-text-primary mb-3">基本情報</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">注文番号</label>
+                        <p className="text-nexus-text-primary font-mono text-sm">{selectedDetailItem.orderId}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">商品ID</label>
+                        <p className="text-nexus-text-primary font-mono text-sm">{selectedDetailItem.productId}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">商品名</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.productName}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">顧客</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.customer}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 返品情報 */}
+                <div className="intelligence-card global">
+                  <div className="p-4">
+                    <h3 className="text-base font-semibold text-nexus-text-primary mb-3">返品情報</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">返品日</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.returnDate}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">返品理由</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.returnReason}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">元の状態</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.originalCondition}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">返品時状態</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.returnedCondition}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ステータス・処理情報 */}
+                <div className="intelligence-card global">
+                  <div className="p-4">
+                    <h3 className="text-base font-semibold text-nexus-text-primary mb-3">処理情報</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">現在ステータス</label>
+                        <p className="text-nexus-text-primary text-sm">{getStatusLabel(selectedDetailItem.status)}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">担当者</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.inspector}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-nexus-text-secondary">返金金額</label>
+                        <p className="text-nexus-text-primary text-sm">{selectedDetailItem.refundAmount}</p>
+                      </div>
+                      {selectedDetailItem.finalDecision && (
+                        <div>
+                          <label className="text-sm font-medium text-nexus-text-secondary">最終判定</label>
+                          <p className="text-nexus-text-primary text-sm">{getDecisionLabel(selectedDetailItem.finalDecision)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 顧客メモ */}
+                {selectedDetailItem.customerNote && (
+                  <div className="intelligence-card global">
+                    <div className="p-4">
+                      <h3 className="text-base font-semibold text-nexus-text-primary mb-3">顧客メモ</h3>
+                      <p className="text-nexus-text-primary text-sm whitespace-pre-wrap">{selectedDetailItem.customerNote}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 検品メモ */}
+                {selectedDetailItem.inspectionNote && (
+                  <div className="intelligence-card global">
+                    <div className="p-4">
+                      <h3 className="text-base font-semibold text-nexus-text-primary mb-3">検品メモ</h3>
+                      <p className="text-nexus-text-primary text-sm whitespace-pre-wrap">{selectedDetailItem.inspectionNote}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </BaseModal>
       </div>

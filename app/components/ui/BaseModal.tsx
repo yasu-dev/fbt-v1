@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect } from 'react';
+import React, { ReactNode, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useModal } from './ModalContext';
 
@@ -14,11 +14,12 @@ interface BaseModalProps {
   className?: string;
 }
 
+// コンパクトで効率的なサイズ設定
 const sizeClasses = {
-  sm: 'max-w-md',
-  md: 'max-w-2xl',
-  lg: 'max-w-4xl',
-  xl: 'max-w-6xl',
+  sm: 'max-w-sm',
+  md: 'max-w-xl',
+  lg: 'max-w-3xl',
+  xl: 'max-w-5xl',
   full: 'max-w-full mx-4'
 };
 
@@ -34,6 +35,7 @@ export default function BaseModal({
   className = ''
 }: BaseModalProps) {
   const { setIsAnyModalOpen } = useModal();
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // ESCキーでモーダルを閉じる
   useEffect(() => {
@@ -49,6 +51,20 @@ export default function BaseModal({
       document.body.style.overflow = 'hidden';
       // グローバル状態を更新（業務フローの状態は変更しない）
       setIsAnyModalOpen(true);
+      
+      // ページ全体を最上部にスクロール - 正しいスクロールコンテナを対象
+      const scrollContainer = document.querySelector('.page-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+      } else {
+        // フォールバック（ログインページなど、DashboardLayoutを使用していない場合）
+        window.scrollTo(0, 0);
+      }
+      
+      // モーダルが開いたときにコンテンツエリアのスクロール位置を最上部にリセット
+      if (contentRef.current) {
+        contentRef.current.scrollTop = 0;
+      }
     } else {
       // グローバル状態をリセット（業務フローの状態は変更しない）
       setIsAnyModalOpen(false);
@@ -72,7 +88,7 @@ export default function BaseModal({
 
   return (
     <div 
-      className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-[9999] p-4"
+      className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-start justify-center z-[10001] p-2 pt-8"
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
@@ -94,14 +110,14 @@ export default function BaseModal({
         `}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ヘッダー */}
+        {/* ヘッダー - paddingを削減 */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between p-6 border-b border-nexus-border">
+          <div className="flex items-start justify-between p-3 border-b border-nexus-border">
             <div className="flex-1">
               {title && (
                 <h2 
                   id="modal-title" 
-                  className="text-xl font-semibold text-nexus-text-primary font-display"
+                  className="text-lg font-semibold text-nexus-text-primary font-display"
                 >
                   {title}
                 </h2>
@@ -115,17 +131,17 @@ export default function BaseModal({
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-nexus-bg-secondary rounded-lg transition-colors ml-4"
+                className="p-2 hover:bg-nexus-bg-secondary rounded-lg transition-colors ml-3"
                 aria-label="モーダルを閉じる"
               >
-                <X size={20} className="text-nexus-text-secondary" />
+                <X size={18} className="text-nexus-text-secondary" />
               </button>
             )}
           </div>
         )}
 
-        {/* コンテンツ */}
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* コンテンツ - paddingを削減 */}
+        <div className="flex-1 overflow-y-auto p-4" ref={contentRef}>
           {children}
         </div>
       </div>
