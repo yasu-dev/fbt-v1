@@ -8,8 +8,8 @@ import { useToast } from '@/app/components/features/notifications/ToastProvider'
 import NexusCheckbox from '@/app/components/ui/NexusCheckbox';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('seller@example.com'); // デフォルトでテスト用メール
+  const [password, setPassword] = useState('password123'); // デフォルトでテスト用パスワード
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -22,30 +22,64 @@ export default function LoginPage() {
     setError('');
     
     try {
+      console.log('[CLIENT] ログイン処理開始:', { email, password: '***' });
+      
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+      }).catch((networkError) => {
+        console.error('[CLIENT] ネットワークエラー:', networkError);
+        throw new Error('ネットワークエラーが発生しました。');
       });
 
+      console.log('[CLIENT] レスポンス受信:', response.status, response.statusText);
+
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch((jsonError) => {
+          console.error('[CLIENT] JSONパースエラー:', jsonError);
+          throw new Error('サーバーレスポンスの解析に失敗しました。');
+        });
+        
+        console.log('[CLIENT] レスポンスデータ:', data);
+        
         if (data.success) {
           showToast({ type: 'success', title: 'ログイン成功', message: 'ダッシュボードへようこそ！' });
-          if (data.user.role === 'staff') {
-            router.push('/staff/dashboard');
-          } else {
-            router.push('/dashboard');
-          }
+          
+          // ログイン成功後のリダイレクト
+          const redirectPath = data.user.role === 'staff' || data.user.role === 'admin' ? '/staff/dashboard' : '/dashboard';
+          console.log('[CLIENT] リダイレクト先:', redirectPath);
+          
+          router.push(redirectPath);
+          return; // 成功時は処理終了
         } else {
-          throw new Error(data.error || 'ログインに失敗しました。');
+          console.error('[CLIENT] ログイン失敗 - success: false');
+          throw new Error(data.error || 'ログインに失敗しました');
         }
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'サーバーエラーが発生しました。');
+        console.error('[CLIENT] HTTPエラー:', response.status, response.statusText);
+        
+        let errorMessage = 'サーバーエラーが発生しました。';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+          console.error('[CLIENT] エラーデータ:', errorData);
+        } catch (parseError) {
+          console.error('[CLIENT] エラーレスポンスの解析に失敗:', parseError);
+        }
+        
+        throw new Error(errorMessage);
       }
     } catch (error: any) {
-      setError(error.message || 'ログインに失敗しました。');
+      console.error('[CLIENT] ログインエラー:', error);
+      const errorMessage = error.message || 'ログインに失敗しました';
+      
+      setError(errorMessage);
+      showToast({ 
+        type: 'error', 
+        title: 'ログインエラー', 
+        message: errorMessage 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -91,7 +125,16 @@ export default function LoginPage() {
           {/* Login Form */}
           <div className="intelligence-card global shadow-xl">
             <div className="p-8">
-              <form className="space-y-6" onSubmit={handleSubmit}>
+              <form className="space-y-6" onSubmit={handleSubmit} method="post">
+                {/* テスト用認証情報表示 */}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm">
+                  <div className="font-medium text-blue-800 mb-1">🧪 テスト用認証情報</div>
+                  <div className="text-blue-600">
+                    <div>メール: seller@example.com</div>
+                    <div>パスワード: password123</div>
+                  </div>
+                </div>
+
                 {error && (
                   <div className="bg-nexus-red/8 border-2 border-nexus-red/20 text-nexus-red p-4 rounded-lg text-sm font-medium flex items-center">
                     <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

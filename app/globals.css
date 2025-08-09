@@ -84,13 +84,16 @@
     --icon-lg: 2rem;    /* 32px */
     --icon-xl: 2.5rem;  /* 40px */
 
-    /* Nexus Design System Classes */
-    --nexus-bg: linear-gradient(135deg, #0F1014 0%, #1A1A2E 50%, #0F1014 100%);
-    --nexus-card-bg: rgba(255, 255, 255, 0.05);
-    --nexus-text-primary: #FFFFFF;
-    --nexus-text-secondary: #B8BFC6;
-    --nexus-text-muted: #6B7280;
-    --nexus-border: rgba(255, 255, 255, 0.15);
+    /* Nexus Design System Classes - Light Theme */
+    --nexus-bg: linear-gradient(135deg, #F8FAFE 0%, #FFFFFF 50%, #F8FAFE 100%);
+    --nexus-card-bg: rgba(255, 255, 255, 0.97);
+    --nexus-surface: rgba(255, 255, 255, 0.97);
+    --nexus-bg-secondary: rgba(248, 250, 254, 0.97);
+    --nexus-bg-tertiary: rgba(240, 245, 252, 0.97);
+    --nexus-text-primary: #1A1A1A;
+    --nexus-text-secondary: #666666;
+    --nexus-text-muted: #999999;
+    --nexus-border: rgba(0, 100, 210, 0.25);
   }
 
   /* Reset & Base Styles */
@@ -490,7 +493,7 @@
     
     /* コンテンツ密度の最適化 */
     .page-container {
-      padding: 1rem;
+      padding: 2rem;
     }
     
     .space-y-6 > * + * {
@@ -505,7 +508,7 @@
   /* デスクトップ最適化 (1440px+) */
   @media (min-width: 1441px) {
     .page-container {
-      padding: 1.5rem;
+      padding: 2rem;
     }
   }
 
@@ -877,7 +880,7 @@
 
   /* Page Container - スクロール対応 */
   .page-container {
-    padding: 0;
+    padding: 2rem;
     max-width: 1400px;
     margin: 0 auto;
     flex: 1;
@@ -893,7 +896,7 @@
     flex-direction: column;
     gap: 1.5rem;
     min-height: 0;
-    padding: 1.5rem;
+    padding: 2rem;
   }
 
   /* Ensure minimum content height for scrollability */
@@ -1455,7 +1458,7 @@
 
 .cert-nano.cert-elite {
   background: linear-gradient(135deg, #FFD700, #FFA000);
-  color: #664400;
+  color: #4A3000;
 }
 
 .cert-nano.cert-premium {

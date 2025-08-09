@@ -1,6 +1,24 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
+// 型定義
+interface BarcodeLabel {
+  sku: string;
+  barcode: string;
+  productName: string;
+  category?: string;
+  price?: string;
+}
+
+interface ProductLabelData {
+  sku: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  price?: number;
+  category?: string;
+}
+
 /**
  * PDF生成ユーティリティ
  */
@@ -326,6 +344,491 @@ export class PDFGenerator {
   }
 
   /**
+   * 配送ラベルPDF生成（配送業者別対応）
+   */
+  static async generateShippingLabel(data: any, carrier?: string, service?: string): Promise<Blob> {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      putOnlyUsedFonts: true
+    });
+
+    // 日本語対応のため、デフォルトフォントを使用し、英数字のみで情報を記載
+    // または代替として、重要な情報を英数字で表現
+
+    // ページの枠線
+    pdf.setDrawColor(0);
+    pdf.setLineWidth(1);
+    pdf.rect(10, 10, 190, 277);
+
+    // ヘッダー - 会社名と配送業者情報
+    pdf.setFontSize(24);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('THE WORLD DOOR', 105, 25, { align: 'center' });
+    
+    pdf.setFontSize(16);
+    pdf.text('SHIPPING LABEL', 105, 35, { align: 'center' });
+    
+    // 配送業者情報を追加
+    if (carrier) {
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'normal');
+      const carrierName = PDFGenerator.getCarrierDisplayName(carrier);
+      pdf.text(`Carrier: ${carrierName}`, 105, 42, { align: 'center' });
+      
+      if (service) {
+        const serviceName = PDFGenerator.getServiceDisplayName(service);
+        pdf.text(`Service: ${serviceName}`, 105, 47, { align: 'center' });
+      }
+    }
+
+    // 区切り線
+    pdf.setLineWidth(0.5);
+    pdf.line(15, 45, 195, 45);
+
+    // 注文情報セクション
+    let yPos = 55;
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('ORDER INFORMATION', 15, yPos);
+    
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'normal');
+    yPos += 8;
+    pdf.text(`Order No: ${data.orderNumber}`, 20, yPos);
+    
+    yPos += 6;
+    pdf.text(`SKU: ${data.productSku}`, 20, yPos);
+    
+    yPos += 6;
+         pdf.text(`Product: ${PDFGenerator.convertToRomaji(data.productName)}`, 20, yPos);
+     
+     yPos += 6;
+     pdf.text(`Value: JPY ${data.value.toLocaleString()}`, 20, yPos);
+
+     yPos += 6;
+     pdf.text(`Method: ${PDFGenerator.convertShippingMethod(data.shippingMethod)}`, 20, yPos);
+
+    // 区切り線
+    yPos += 10;
+    pdf.line(15, yPos, 195, yPos);
+
+    // 配送先情報セクション
+    yPos += 10;
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('DELIVERY INFORMATION', 15, yPos);
+    
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'normal');
+    yPos += 8;
+         pdf.text(`Customer: ${PDFGenerator.convertToRomaji(data.customer)}`, 20, yPos);
+     
+     yPos += 6;
+     // 住所を複数行に分割
+     const addressLines = PDFGenerator.splitAddress(data.shippingAddress);
+     addressLines.forEach((line, index) => {
+       pdf.text(`Address${index === 0 ? '' : ' (cont)'}: ${line}`, 20, yPos);
+       yPos += 6;
+     });
+
+     // 日本語住所も併記
+     yPos += 5;
+     pdf.setFontSize(9);
+     pdf.setFont('helvetica', 'italic');
+     pdf.text('Japanese Address:', 20, yPos);
+     yPos += 4;
+     
+     // 日本語住所を英数字で可能な限り表現
+     const jpAddressConverted = PDFGenerator.convertJapaneseAddress(data.shippingAddress);
+    jpAddressConverted.forEach(line => {
+      pdf.text(line, 20, yPos);
+      yPos += 4;
+    });
+
+    // バーコードセクション
+    yPos += 15;
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('TRACKING BARCODE', 15, yPos);
+    
+    // バーコード描画
+    yPos += 10;
+    const barcodeWidth = 160;
+    const barcodeHeight = 25;
+    const startX = 25;
+    
+    // バーコード背景
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(startX - 2, yPos - 2, barcodeWidth + 4, barcodeHeight + 8, 'F');
+    
+    // バーコード線
+    pdf.setLineWidth(0.8);
+    pdf.setDrawColor(0);
+    
+    const barcodeData = data.orderNumber.replace(/-/g, '');
+    const barCount = 95;
+    
+         for (let i = 0; i < barCount; i++) {
+       const x = startX + (i * (barcodeWidth / barCount));
+       const shouldDraw = PDFGenerator.getBarcodePattern(barcodeData, i);
+       const height = shouldDraw ? barcodeHeight : barcodeHeight * 0.3;
+       
+       if (shouldDraw) {
+         pdf.setLineWidth(1.2);
+         pdf.line(x, yPos + 2, x, yPos + height - 2);
+       }
+     }
+    
+    // バーコード番号
+    yPos += barcodeHeight + 8;
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(barcodeData, startX + barcodeWidth / 2, yPos, { align: 'center' });
+
+    // 追加情報
+    yPos += 15;
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Generated: ${new Date().toLocaleDateString('en-US')} ${new Date().toLocaleTimeString('en-US')}`, 20, yPos);
+    
+    yPos += 5;
+    pdf.text('Handle with care - Premium resale item', 20, yPos);
+
+    // QRコード風の格子パターン（簡易版）
+    const qrSize = 40;
+    const qrX = 150;
+    const qrY = 220;
+    
+    pdf.setFillColor(0);
+         // QRコード風のドットパターン
+     for (let row = 0; row < 20; row++) {
+       for (let col = 0; col < 20; col++) {
+         if (PDFGenerator.getQRPattern(barcodeData, row, col)) {
+           pdf.rect(qrX + col * 2, qrY + row * 2, 2, 2, 'F');
+         }
+       }
+     }
+    
+    // QRコードラベル
+    yPos = qrY + qrSize + 8;
+    pdf.setFontSize(8);
+    pdf.text('QR Code', qrX + qrSize / 2, yPos, { align: 'center' });
+
+    // フッター
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('THE WORLD DOOR - Premium Camera & Watch Resale Platform', 105, 280, { align: 'center' });
+
+    return new Blob([pdf.output('blob')], { type: 'application/pdf' });
+  }
+
+  /**
+   * 配送業者名の表示用名称を取得
+   */
+  private static getCarrierDisplayName(carrier: string): string {
+    const carrierNames: Record<string, string> = {
+      'fedex': 'FedEx',
+      'yamato': 'Yamato Transport',
+      'sagawa': 'Sagawa Express',
+      'yupack': 'Yu-Pack (Japan Post)'
+    };
+    return carrierNames[carrier] || carrier.toUpperCase();
+  }
+
+  /**
+   * サービス名の表示用名称を取得
+   */
+  private static getServiceDisplayName(service: string): string {
+    const serviceNames: Record<string, string> = {
+      'standard': 'Standard',
+      'express': 'Express',
+      'priority': 'Priority',
+      'cool': 'Cool Delivery',
+      'collect_on_delivery': 'COD',
+      'large_item': 'Large Item',
+      'fragile': 'Fragile',
+      'security': 'Security'
+    };
+    return serviceNames[service] || service.charAt(0).toUpperCase() + service.slice(1);
+  }
+
+  // ヘルパーメソッド: 日本語をローマ字に変換（簡易版）
+  static convertToRomaji(text: string): string {
+    // 簡易的な変換マップ
+    const conversionMap: { [key: string]: string } = {
+      'カメラ': 'Camera',
+      'レンズ': 'Lens', 
+      'ボディ': 'Body',
+      'キヤノン': 'Canon',
+      'ニコン': 'Nikon',
+      'ソニー': 'Sony',
+      'オリンパス': 'Olympus',
+      'パナソニック': 'Panasonic',
+      'リコー': 'Ricoh',
+      'フジフイルム': 'Fujifilm',
+      '時計': 'Watch',
+      'カシオ': 'Casio',
+      'シチズン': 'Citizen',
+      'セイコー': 'Seiko',
+      '山田': 'Yamada',
+      '田中': 'Tanaka', 
+      '佐藤': 'Sato',
+      '鈴木': 'Suzuki',
+      '高橋': 'Takahashi',
+      '太郎': 'Taro',
+      '花子': 'Hanako',
+      '一郎': 'Ichiro',
+      '二郎': 'Jiro'
+    };
+
+    let result = text;
+    Object.keys(conversionMap).forEach(jp => {
+      result = result.replace(new RegExp(jp, 'g'), conversionMap[jp]);
+    });
+
+    // それでも日本語が残っている場合は、英数字のみを抽出
+    return result.replace(/[^\x00-\x7F]/g, '?');
+  }
+
+  // ヘルパーメソッド: 配送方法を英語に変換
+  static convertShippingMethod(method: string): string {
+    const methodMap: { [key: string]: string } = {
+      'ヤマト宅急便': 'Yamato Transport',
+      '佐川急便': 'Sagawa Express', 
+      '日本郵便': 'Japan Post',
+      'ゆうパック': 'Yu-Pack (Japan Post)',
+      'クロネコヤマト': 'Kuroneko Yamato'
+    };
+    
+    return methodMap[method] || method.replace(/[^\x00-\x7F]/g, '?');
+  }
+
+  // ヘルパーメソッド: 住所を分割
+  static splitAddress(address: string): string[] {
+    // 英数字部分のみを抽出し、適切な長さで分割
+    const cleanAddress = address.replace(/[^\x00-\x7F0-9-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const maxLength = 60;
+    
+    if (cleanAddress.length <= maxLength) {
+      return [cleanAddress];
+    }
+    
+    const lines: string[] = [];
+    let current = cleanAddress;
+    
+    while (current.length > maxLength) {
+      let breakPoint = maxLength;
+      const spaceIndex = current.lastIndexOf(' ', maxLength);
+      if (spaceIndex > maxLength * 0.7) {
+        breakPoint = spaceIndex;
+      }
+      
+      lines.push(current.substring(0, breakPoint).trim());
+      current = current.substring(breakPoint).trim();
+    }
+    
+    if (current.length > 0) {
+      lines.push(current);
+    }
+    
+    return lines;
+  }
+
+  // ヘルパーメソッド: 日本語住所を英数字表記に変換
+  static convertJapaneseAddress(address: string): string[] {
+    // 都道府県の変換
+    let converted = address
+      .replace(/東京都/g, 'Tokyo')
+      .replace(/大阪府/g, 'Osaka')
+      .replace(/京都府/g, 'Kyoto')
+      .replace(/神奈川県/g, 'Kanagawa')
+      .replace(/埼玉県/g, 'Saitama')
+      .replace(/千葉県/g, 'Chiba')
+      .replace(/愛知県/g, 'Aichi')
+      .replace(/兵庫県/g, 'Hyogo')
+      .replace(/福岡県/g, 'Fukuoka')
+      .replace(/渋谷区/g, 'Shibuya-ku')
+      .replace(/新宿区/g, 'Shinjuku-ku')
+      .replace(/港区/g, 'Minato-ku')
+      .replace(/品川区/g, 'Shinagawa-ku')
+      .replace(/中央区/g, 'Chuo-ku')
+      .replace(/江東区/g, 'Koto-ku')
+      .replace(/市/g, '-shi')
+      .replace(/区/g, '-ku')
+      .replace(/町/g, '-cho')
+      .replace(/丁目/g, '-chome')
+      .replace(/番地/g, '-banchi');
+
+    // 残りの日本語文字を除去
+    converted = converted.replace(/[^\x00-\x7F0-9-]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    return PDFGenerator.splitAddress(converted);
+  }
+
+  // ヘルパーメソッド: バーコードパターン生成
+  static getBarcodePattern(data: string, position: number): boolean {
+    // 簡易的なバーコードパターン生成
+    const hash = PDFGenerator.simpleHash(data + position);
+    return hash % 3 === 0;
+  }
+
+  // ヘルパーメソッド: QRコードパターン生成
+  static getQRPattern(data: string, row: number, col: number): boolean {
+    // 簡易的なQRコードパターン生成
+    const hash = PDFGenerator.simpleHash(data + row + col);
+    return hash % 4 === 0;
+  }
+
+  // ヘルパーメソッド: 簡単なハッシュ関数
+  static simpleHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 32bit整数に変換
+    }
+    return Math.abs(hash);
+  }
+
+  /**
+   * 商品ラベルPDF生成
+   */
+  static async generateProductLabel(data: ProductLabelData): Promise<Blob> {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: [100, 150] // 100mm x 150mm のラベルサイズ
+    });
+
+    const labelWidth = 100;
+    const labelHeight = 150;
+    const margin = 5;
+
+    // ラベル枠線
+    pdf.setDrawColor(0);
+    pdf.setLineWidth(0.5);
+    pdf.rect(2, 2, labelWidth - 4, labelHeight - 4);
+
+    // 会社ロゴ・名称
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('THE WORLD DOOR', labelWidth / 2, 15, { align: 'center' });
+
+    // 区切り線
+    pdf.setLineWidth(0.3);
+    pdf.line(margin, 20, labelWidth - margin, 20);
+
+    // 商品情報
+    let yPos = 30;
+    
+    // SKU
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('SKU:', margin, yPos);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(data.sku, margin + 15, yPos);
+
+    yPos += 8;
+    
+    // 商品名（複数行対応）
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('商品名:', margin, yPos);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    const nameLines = pdf.splitTextToSize(data.name, labelWidth - 20);
+    pdf.text(nameLines, margin, yPos + 6);
+    
+    yPos += 6 + (nameLines.length * 4);
+
+    // ブランド・モデル
+    if (data.brand) {
+      yPos += 4;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.text('ブランド:', margin, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(data.brand, margin + 25, yPos);
+    }
+
+    if (data.model) {
+      yPos += 6;
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('モデル:', margin, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(data.model, margin + 20, yPos);
+    }
+
+    // バーコード生成エリア
+    yPos += 15;
+    const barcodeWidth = labelWidth - 20;
+    const barcodeHeight = 20;
+    const barcodeX = (labelWidth - barcodeWidth) / 2;
+    
+    // バーコード背景
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(barcodeX - 2, yPos - 2, barcodeWidth + 4, barcodeHeight + 4, 'F');
+    
+    // バーコード線（簡易実装）
+    pdf.setLineWidth(0.8);
+    pdf.setDrawColor(0);
+    
+    const barcodeData = data.sku.replace(/[^A-Za-z0-9]/g, '');
+    const barCount = 50;
+    
+    for (let i = 0; i < barCount; i++) {
+      const x = barcodeX + (i * (barcodeWidth / barCount));
+      const shouldDraw = PDFGenerator.getBarcodePattern(barcodeData, i);
+      
+      if (shouldDraw) {
+        pdf.setLineWidth(1);
+        pdf.line(x, yPos, x, yPos + barcodeHeight);
+      }
+    }
+    
+    // バーコード番号
+    yPos += barcodeHeight + 8;
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(data.sku, labelWidth / 2, yPos, { align: 'center' });
+
+    // 価格（もしあれば）
+    if (data.price) {
+      yPos += 12;
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`¥${data.price.toLocaleString()}`, labelWidth / 2, yPos, { align: 'center' });
+    }
+
+    // 生成日時
+    yPos += 15;
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`生成日: ${new Date().toLocaleDateString('ja-JP')}`, margin, yPos);
+    
+    yPos += 4;
+    pdf.text(`生成者: ${data.generatedBy || 'システム'}`, margin, yPos);
+
+    // QRコード風エリア（右下）
+    const qrSize = 25;
+    const qrX = labelWidth - qrSize - margin;
+    const qrY = labelHeight - qrSize - margin;
+    
+    pdf.setFillColor(0);
+    // 簡易QRコードパターン
+    for (let row = 0; row < 12; row++) {
+      for (let col = 0; col < 12; col++) {
+        if (PDFGenerator.getQRPattern(barcodeData, row, col)) {
+          pdf.rect(qrX + col * 2, qrY + row * 2, 2, 2, 'F');
+        }
+      }
+    }
+
+    return pdf.output('blob');
+  }
+
+  /**
    * HTMLエレメントからPDF生成
    */
   static async generateFromHTML(elementId: string, fileName: string = 'document.pdf'): Promise<void> {
@@ -391,4 +894,14 @@ interface PickingListData {
     isPicked: boolean;
   }>;
   qrCode?: string;
+}
+
+interface ProductLabelData {
+  productId: string;
+  sku: string;
+  name: string;
+  brand?: string;
+  model?: string;
+  price?: number;
+  generatedBy?: string;
 } 

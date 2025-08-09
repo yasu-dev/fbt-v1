@@ -19,7 +19,7 @@ interface FlowStep {
     count: number;
     avgDays: number;
     status: 'active' | 'waiting' | 'completed';
-    priority: 'high' | 'medium' | 'low';
+  
   }[];
 }
 
@@ -51,6 +51,8 @@ export default function UnifiedProductFlow({
     returns: 0,
     userActiveTasks: 0
   });
+
+
 
   // 洗練されたSVGアイコンセット
   const stepIcons = {
@@ -98,9 +100,9 @@ export default function UnifiedProductFlow({
       bgColor: '#e3f2fd',
       icon: stepIcons.preparation,
       tasks: [
-        { id: 'sourcing', name: '商品仕入れ', count: 0, avgDays: 3, status: 'active', priority: 'high' },
-        { id: 'plan', name: '納品プラン作成', count: 0, avgDays: 1, status: 'waiting', priority: 'medium' },
-        { id: 'shipping', name: 'ATW倉庫発送', count: 0, avgDays: 2, status: 'waiting', priority: 'medium' }
+        { id: 'sourcing', name: '商品仕入れ', count: 0, avgDays: 3, status: 'active',  },
+        { id: 'plan', name: '納品プラン作成', count: 0, avgDays: 1, status: 'waiting',  },
+        { id: 'shipping', name: 'ATW倉庫発送', count: 0, avgDays: 2, status: 'waiting',  }
       ]
     },
     {
@@ -113,9 +115,9 @@ export default function UnifiedProductFlow({
       bgColor: '#f3e5f5',
       icon: stepIcons.inbound,
       tasks: [
-        { id: 'receive', name: '商品受取', count: 0, avgDays: 1, status: 'active', priority: 'high' },
-        { id: 'inspection', name: '検品・撮影', count: 0, avgDays: 2, status: 'waiting', priority: 'high' },
-        { id: 'register', name: '在庫登録', count: 0, avgDays: 1, status: 'waiting', priority: 'medium' }
+        { id: 'receive', name: '商品受取', count: 0, avgDays: 1, status: 'active',  },
+        { id: 'inspection', name: '検品・撮影', count: 0, avgDays: 2, status: 'waiting',  },
+        { id: 'register', name: '在庫登録', count: 0, avgDays: 1, status: 'waiting',  }
       ]
     },
     {
@@ -128,9 +130,9 @@ export default function UnifiedProductFlow({
       bgColor: '#e8f5e8',
       icon: stepIcons.sales,
       tasks: [
-        { id: 'listing', name: 'eBay自動出品', count: 0, avgDays: 1, status: 'active', priority: 'medium' },
-        { id: 'order', name: '商品注文', count: 0, avgDays: 0, status: 'waiting', priority: 'low' },
-        { id: 'process', name: '受注処理', count: 0, avgDays: 1, status: 'waiting', priority: 'high' }
+        { id: 'listing', name: 'eBay自動出品', count: 0, avgDays: 1, status: 'active',  },
+        { id: 'order', name: '商品注文', count: 0, avgDays: 0, status: 'waiting',  },
+        { id: 'process', name: '受注処理', count: 0, avgDays: 1, status: 'waiting',  }
       ]
     },
     {
@@ -143,9 +145,9 @@ export default function UnifiedProductFlow({
       bgColor: '#e0f7fa',
       icon: stepIcons.shipping,
       tasks: [
-        { id: 'picking', name: 'ピッキング', count: 0, avgDays: 1, status: 'active', priority: 'high' },
-        { id: 'packing', name: '梱包・発送', count: 0, avgDays: 1, status: 'waiting', priority: 'high' },
-        { id: 'delivery', name: '購入者受取', count: 0, avgDays: 3, status: 'waiting', priority: 'low' }
+        { id: 'picking', name: 'ピッキング', count: 0, avgDays: 1, status: 'active',  },
+        { id: 'packing', name: '梱包・発送', count: 0, avgDays: 1, status: 'waiting',  },
+        { id: 'delivery', name: '購入者受取', count: 0, avgDays: 3, status: 'waiting',  }
       ]
     },
     {
@@ -158,9 +160,9 @@ export default function UnifiedProductFlow({
       bgColor: '#fff8e1',
       icon: stepIcons.completion,
       tasks: [
-        { id: 'calculation', name: '売上計算', count: 0, avgDays: 1, status: 'active', priority: 'medium' },
-        { id: 'settlement', name: '精算確認', count: 0, avgDays: 2, status: 'waiting', priority: 'high' },
-        { id: 'next', name: '次回仕入れ', count: 0, avgDays: 0, status: 'waiting', priority: 'low' }
+        { id: 'calculation', name: '売上計算', count: 0, avgDays: 1, status: 'active',  },
+        { id: 'settlement', name: '精算確認', count: 0, avgDays: 2, status: 'waiting',  },
+        { id: 'next', name: '次回仕入れ', count: 0, avgDays: 0, status: 'waiting',  }
       ]
     },
     {
@@ -173,9 +175,9 @@ export default function UnifiedProductFlow({
       bgColor: '#fff3e0',
       icon: stepIcons.returns,
       tasks: [
-        { id: 'return-receive', name: '返品受付', count: 0, avgDays: 1, status: 'active', priority: 'high' },
-        { id: 'return-inspect', name: '返品検品', count: 0, avgDays: 2, status: 'waiting', priority: 'high' },
-        { id: 'return-process', name: '再出品・廃棄', count: 0, avgDays: 1, status: 'waiting', priority: 'medium' }
+        { id: 'return-receive', name: '返品受付', count: 0, avgDays: 1, status: 'active',  },
+        { id: 'return-inspect', name: '返品検品', count: 0, avgDays: 2, status: 'waiting',  },
+        { id: 'return-process', name: '再出品・廃棄', count: 0, avgDays: 1, status: 'waiting',  }
       ]
     }
   ];
@@ -347,14 +349,7 @@ export default function UnifiedProductFlow({
     }
   };
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'bg-red-100 text-red-700';
-      case 'medium': return 'bg-yellow-100 text-yellow-700';
-              case 'low': return 'bg-nexus-bg-secondary text-nexus-text-secondary';
-        default: return 'bg-nexus-bg-secondary text-nexus-text-secondary';
-    }
-  };
+
 
   if (loading) {
     return (
@@ -369,8 +364,8 @@ export default function UnifiedProductFlow({
   }
 
   return (
-    <div className={isCollapsed ? "bg-white border-b border-gray-200" : "intelligence-card global"}>
-      <div className={isCollapsed ? "p-4" : "p-8"}>
+    <div className={isCollapsed ? "bg-white border-b border-gray-200" : "bg-white rounded-xl border border-nexus-border"} data-testid="unified-product-flow">
+      <div className={isCollapsed ? "p-4" : "p-6"}>
         <div className="flex flex-col gap-4">
           {/* ヘッダー統計と作業者ステータス */}
           <div className="flex items-center justify-between">
@@ -395,7 +390,7 @@ export default function UnifiedProductFlow({
             {!isCollapsed && (
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                   <span className="text-gray-600">進行中: {totalStats.inProgress}</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -442,13 +437,10 @@ export default function UnifiedProductFlow({
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <div 
-                        className="p-2 rounded-lg"
-                        style={{ 
-                          backgroundColor: `${step.color}20`,
-                          color: step.color 
-                        }}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white"
+                        style={{ backgroundColor: step.color }}
                       >
-                        <div className="w-5 h-5">
+                        <div className="w-4 h-4">
                           {step.icon}
                         </div>
                       </div>
@@ -457,8 +449,8 @@ export default function UnifiedProductFlow({
                           {step.shortName}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {step.role === 'seller' ? 'セラー作業' : 
-                           step.role === 'staff' ? 'スタッフ作業' : 
+                          {step.role === 'seller' ? 'あなたの作業' : 
+                           step.role === 'staff' ? '倉庫作業' : 
                            step.role === 'system' ? '自動処理' : '顧客対応'}
                         </div>
                       </div>
@@ -498,16 +490,14 @@ export default function UnifiedProductFlow({
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-gray-700 font-medium">{task.name}</span>
-                          {task.priority === 'high' && task.count > 0 && (
-                            <span className={`px-1 py-0.5 rounded text-[10px] font-medium ${getPriorityColor(task.priority)}`}>
-                              緊急
-                            </span>
-                          )}
+
                         </div>
                         {showCounts && task.count > 0 && (
                           <span 
-                            className="px-2 py-1 rounded-full text-white font-bold text-[10px] min-w-[20px] text-center"
-                            style={{ backgroundColor: step.color }}
+                            className="px-2 py-1 rounded-full font-bold text-[10px] min-w-[20px] text-center text-white shadow-sm"
+                            style={{ 
+                              backgroundColor: step.color
+                            }}
                             aria-label={`${task.count}件`}
                           >
                             {task.count}
@@ -529,7 +519,7 @@ export default function UnifiedProductFlow({
                         <span>平均処理時間</span>
                         <span>{Math.max(...step.tasks.map(t => t.avgDays))}日</span>
                       </div>
-                      {totalStepTasks > 0 && (
+                                              {totalStepTasks > 0 && (
                         <div className="mt-1">
                           <div className="w-full bg-gray-200 rounded-full h-1">
                             <div 
@@ -548,8 +538,12 @@ export default function UnifiedProductFlow({
                   {/* 接続線（デスクトップのみ） */}
                   {index < flowData.length - 1 && (
                     <div className="hidden lg:block absolute -right-4 top-1/2 transform -translate-y-1/2 z-10">
-                      <div className="w-8 h-0.5 bg-gray-300 relative">
-                        <div className="absolute -right-1 -top-1 w-2 h-2 bg-gray-300 rotate-45 transform origin-center"></div>
+                      <div 
+                        className="w-8 h-1 rounded-full relative bg-gray-300"
+                      >
+                        <div 
+                          className="absolute -right-1 -top-1 w-2 h-2 rotate-45 transform origin-center rounded-sm bg-gray-300"
+                        ></div>
                       </div>
                     </div>
                   )}

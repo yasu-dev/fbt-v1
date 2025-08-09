@@ -9,22 +9,50 @@ const prisma = new PrismaClient();
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[DEBUG] 納品プラン作成API開始');
+    
     // 認証チェック（セラーのみ）
-    const user = await AuthService.requireRole(request, ['seller']);
+    let user;
+    try {
+      user = await AuthService.requireRole(request, ['seller']);
+      console.log('[DEBUG] 認証成功:', user.email);
+    } catch (authError) {
+      console.error('[ERROR] 認証エラー:', authError);
+      return NextResponse.json(
+        { error: 'ログインが必要です。再度ログインしてください。' },
+        { status: 401 }
+      );
+    }
 
     const planData = await request.json();
 
-    // 基本的なバリデーション
-    if (!planData.basicInfo?.sellerName || !planData.basicInfo?.deliveryAddress) {
+    // 基本的なバリデーション（デモ環境対応）
+    console.log('[DEBUG] 受信データ:', JSON.stringify(planData, null, 2));
+    
+    if (!planData.basicInfo?.deliveryAddress) {
       return NextResponse.json(
-        { error: '必須項目が不足しています' },
+        { error: '納品先住所は必須です。' },
         { status: 400 }
       );
     }
 
+    // 連絡先メールアドレスはユーザーのメールアドレスを使用
+
     if (!planData.products || planData.products.length === 0) {
       return NextResponse.json(
-        { error: '商品が登録されていません' },
+        { error: '商品が登録されていません。商品登録ステップで商品を追加してください。' },
+        { status: 400 }
+      );
+    }
+
+    // 商品データのバリデーション（デモ環境対応）
+    const validProducts = planData.products.filter((product: any) => 
+      product && typeof product === 'object' && product.name
+    );
+    
+    if (validProducts.length === 0) {
+      return NextResponse.json(
+        { error: '有効な商品データがありません。商品登録ステップで商品名を入力してください。' },
         { status: 400 }
       );
     }
@@ -32,19 +60,156 @@ export async function POST(request: NextRequest) {
     // 納品プランIDを生成
     const planId = `DP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // デモ用のレスポンス（実際の実装では、データベースに保存）
-    const deliveryPlan = {
-      id: planId,
-      sellerId: user.id,
-      basicInfo: planData.basicInfo,
-      products: planData.products,
-      confirmation: planData.confirmation,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      totalValue: planData.products.reduce((sum: number, product: any) => 
-        sum + (product.estimatedValue || 0), 0
-      ),
-    };
+    // データベーストランザクション内で納品プランと商品を保存
+    console.log('[DEBUG] データベース処理開始');
+    
+    const deliveryPlan = await prisma.$transaction(async (tx) => {
+      console.log('[DEBUG] トランザクション内処理開始');
+      
+      // 1. 納品プランをデータベースに保存
+      console.log('[DEBUG] 納品プラン作成データ:', {
+        planId,
+        sellerId: user.id,
+        sellerName: user.username || user.email,
+        deliveryAddress: planData.basicInfo.deliveryAddress,
+        contactEmail: user.email,
+        phoneNumber: planData.basicInfo.phoneNumber || null,
+        totalItems: validProducts.length
+      });
+      
+      const savedPlan = await tx.deliveryPlan.create({
+        data: {
+          id: planId,
+          planNumber: planId,
+          sellerId: user.id,
+          sellerName: user.username || user.email,
+          deliveryAddress: planData.basicInfo.deliveryAddress,
+          contactEmail: user.email,
+          phoneNumber: planData.basicInfo.phoneNumber || null,
+          status: '発送待ち',
+          totalItems: validProducts.length,
+          totalValue: validProducts.reduce((sum: number, product: any) => 
+            sum + (product.estimatedValue || 0), 0
+          ),
+          notes: planData.confirmation?.notes
+        }
+      });
+      
+      console.log('[DEBUG] 納品プラン作成完了:', savedPlan.id);
+
+      // 2. 納品プランの商品をDeliveryPlanProductテーブルに保存
+      console.log('[DEBUG] 商品データ処理開始:', validProducts.length, '件');
+      const planProducts = await Promise.all(
+        validProducts.map(async (product: any, index: number) => {
+          console.log(`[DEBUG] 商品${index + 1}処理中:`, product.name);
+          const deliveryPlanProduct = await tx.deliveryPlanProduct.create({
+            data: {
+              deliveryPlanId: planId,
+              name: product.name,
+              category: product.category || 'camera',
+              estimatedValue: product.purchasePrice || 0,
+              description: `コンディション: ${product.condition}${product.supplierDetails ? `\n仕入れ詳細: ${product.supplierDetails}` : ''}`
+            }
+          });
+
+          // 検品チェックリストがある場合は保存
+          if (product.inspectionChecklist) {
+            console.log('[DEBUG] 検品チェックリストデータ:', JSON.stringify(product.inspectionChecklist, null, 2));
+            
+            try {
+              // 検品チェックリストの構造を確認
+              const exterior = product.inspectionChecklist.exterior || {};
+              const functionality = product.inspectionChecklist.functionality || {};
+              const optical = product.inspectionChecklist.optical || {};
+              
+              await tx.inspectionChecklist.create({
+                data: {
+                  deliveryPlanProductId: deliveryPlanProduct.id,
+                  hasScratches: Boolean(exterior.scratches),
+                  hasDents: Boolean(exterior.dents),
+                  hasDiscoloration: Boolean(exterior.discoloration),
+                  hasDust: Boolean(exterior.dust),
+                  powerOn: Boolean(functionality.powerOn),
+                  allButtonsWork: Boolean(functionality.allButtonsWork),
+                  screenDisplay: Boolean(functionality.screenDisplay),
+                  connectivity: Boolean(functionality.connectivity),
+                  lensClarity: Boolean(optical.lensClarity),
+                  aperture: Boolean(optical.aperture),
+                  focusAccuracy: Boolean(optical.focusAccuracy),
+                  stabilization: Boolean(optical.stabilization),
+                  notes: product.inspectionChecklist.notes || null,
+                  createdBy: user.username || user.email,
+                }
+              });
+              console.log('[INFO] 検品チェックリスト保存成功');
+            } catch (checklistError) {
+              console.error('[ERROR] 検品チェックリスト保存エラー:', checklistError);
+              // エラーが発生しても処理を継続（検品チェックリストは任意）
+            }
+          }
+
+          return deliveryPlanProduct;
+        })
+      );
+
+      // 3. スタッフの在庫管理画面用にProductテーブルに「入荷待ち」商品を生成
+      const createdProducts = [];
+      
+      for (let index = 0; index < planData.products.length; index++) {
+        const product = planData.products[index];
+        const correspondingPlanProduct = planProducts[index];
+        
+        const sku = `${planId}-${Math.random().toString(36).substr(2, 6)}`.toUpperCase();
+        
+        const createdProduct = await tx.product.create({
+          data: {
+            name: product.name,
+            sku: sku,
+            category: product.category || 'general',
+            status: 'inbound', // 入荷待ちステータス
+            price: product.purchasePrice || 0,
+            condition: product.condition,
+            description: `納品プラン ${planId} からの入庫予定商品。${product.supplierDetails || ''}`,
+            sellerId: user.id,
+            metadata: JSON.stringify({
+              deliveryPlanId: planId,
+              deliveryPlanProductId: correspondingPlanProduct.id,
+              purchaseDate: product.purchaseDate,
+              supplier: product.supplier,
+              supplierDetails: product.supplierDetails,
+              hasInspectionChecklist: !!product.inspectionChecklist
+            })
+          }
+        });
+
+        // 検品チェックリストがある場合は、ProductのIDも関連付け
+        if (product.inspectionChecklist && correspondingPlanProduct) {
+          try {
+            const existingChecklist = await tx.inspectionChecklist.findUnique({
+              where: { deliveryPlanProductId: correspondingPlanProduct.id }
+            });
+            
+            if (existingChecklist) {
+              await tx.inspectionChecklist.update({
+                where: { deliveryPlanProductId: correspondingPlanProduct.id },
+                data: { productId: createdProduct.id }
+              });
+            }
+          } catch (updateError) {
+            console.error('[WARN] 検品チェックリストのProduct関連付けに失敗:', updateError);
+            // エラーでも処理は継続
+          }
+        }
+
+        createdProducts.push(createdProduct);
+      }
+
+      return {
+        ...savedPlan,
+        products: planProducts,
+        createdInventoryItems: createdProducts
+      };
+    });
 
     // バーコード生成フラグがtrueの場合、PDF URLを生成
     let pdfUrl = null;
@@ -55,63 +220,176 @@ export async function POST(request: NextRequest) {
 
     console.log('[INFO] 納品プラン作成成功:', {
       planId,
-      sellerName: planData.basicInfo.sellerName,
+      deliveryAddress: planData.basicInfo.deliveryAddress,
       productCount: planData.products.length,
-      totalValue: deliveryPlan.totalValue
+      totalValue: deliveryPlan.totalValue,
+      createdInventoryItems: deliveryPlan.createdInventoryItems.length
     });
 
     return NextResponse.json({
       success: true,
       planId,
       pdfUrl,
-      message: '納品プランが正常に作成されました',
-      deliveryPlan
+      message: '納品プランが正常に作成されました。スタッフの在庫管理画面に「入荷待ち」商品が登録されました。',
+      deliveryPlan: {
+        id: deliveryPlan.id,
+        sellerId: deliveryPlan.sellerId,
+        status: deliveryPlan.status,
+        totalValue: deliveryPlan.totalValue,
+        createdAt: deliveryPlan.createdAt,
+        inventoryItemsCreated: deliveryPlan.createdInventoryItems.length
+      }
     });
 
   } catch (error) {
     console.error('[ERROR] 納品プラン作成エラー:', error);
+    console.error('[ERROR] エラータイプ:', typeof error);
+    console.error('[ERROR] エラー名前:', error?.constructor?.name);
+    
+    // エラーメッセージを詳細化
+    let errorMessage = '納品プランの作成に失敗しました';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      console.error('[ERROR] 詳細:', error.stack);
+      
+      // Prisma関連のエラーかどうかをチェック
+      if (error.name === 'PrismaClientKnownRequestError') {
+        console.error('[ERROR] Prismaエラーコード:', (error as any).code);
+        errorMessage = 'データベースエラーが発生しました。入力データを確認してください。';
+      } else if (error.name === 'PrismaClientValidationError') {
+        console.error('[ERROR] Prismaバリデーションエラー');
+        errorMessage = 'データの形式が正しくありません。';
+        statusCode = 400;
+      }
+    }
+    
     return NextResponse.json(
-      { error: '納品プランの作成に失敗しました' },
-      { status: 500 }
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      },
+      { status: statusCode }
     );
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    // 認証チェック
-    const user = await AuthService.requireRole(request, ['seller', 'staff']);
+    // 認証チェック（セラーのみ）
+    let user;
+    try {
+      user = await AuthService.requireRole(request, ['seller', 'staff']);
+    } catch (authError) {
+      console.error('[ERROR] 認証エラー:', authError);
+      return NextResponse.json(
+        { error: 'ログインが必要です。再度ログインしてください。' },
+        { status: 401 }
+      );
+    }
+
+    // URLパラメータを解析
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '20');
+    const offset = parseInt(url.searchParams.get('offset') || '0');
+    const status = url.searchParams.get('status');
+    const search = url.searchParams.get('search');
 
     // Prismaを使用して納品プランデータを取得
-    // TODO: 実際のPrismaクエリを実装する際は、以下のような構造になる
-    // const deliveryPlans = await prisma.deliveryPlan.findMany({
-    //   where: { sellerId: user.id },
-    //   include: { products: true }
-    // });
-
-    // 現在はJSONファイルからデータを読み込む（Prismaスキーマが整備されるまで）
-    const filePath = path.join(process.cwd(), 'data', 'seller-mock.json');
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    const sellerData = JSON.parse(fileContents);
+    const where: any = {};
     
-    // 納品プランデータを抽出
-    const deliveryPlans = sellerData.delivery.plans;
+    // スタッフの場合は全データ、セラーの場合は自分のデータのみ
+    if (user.role === 'seller') {
+      where.sellerId = user.id;
+    }
+
+    // ステータスフィルター
+    if (status) {
+      where.status = status;
+    }
+
+    // 検索フィルター（SQLiteでは contains の代わりに contains を使用）
+    if (search) {
+      where.OR = [
+        { planNumber: { contains: search, mode: 'insensitive' } },
+        { sellerName: { contains: search, mode: 'insensitive' } },
+        { deliveryAddress: { contains: search, mode: 'insensitive' } },
+        { contactEmail: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [deliveryPlans, totalCount] = await Promise.all([
+      prisma.deliveryPlan.findMany({
+        where,
+        include: {
+          products: true,
+          seller: {
+            select: {
+              id: true,
+              username: true,
+              email: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        skip: offset,
+        take: limit
+      }),
+      prisma.deliveryPlan.count({ where })
+    ]);
+
+    // フロントエンドで期待される形式に変換
+    const formattedPlans = deliveryPlans.map(plan => ({
+      id: plan.id,
+      deliveryId: plan.planNumber,
+      date: plan.createdAt.toISOString().split('T')[0],
+      status: plan.status,
+      items: plan.totalItems,
+      value: plan.totalValue,
+      sellerName: plan.sellerName,
+      sellerId: plan.sellerId,
+      deliveryAddress: plan.deliveryAddress,
+      contactEmail: plan.contactEmail,
+      phoneNumber: plan.phoneNumber,
+      notes: plan.notes,
+      products: plan.products.map(product => ({
+        name: product.name,
+        category: product.category,
+        estimatedValue: product.estimatedValue,
+        description: product.description
+      }))
+    }));
 
     return NextResponse.json({
       success: true,
-      deliveryPlans
+      deliveryPlans: formattedPlans,
+      pagination: {
+        total: totalCount,
+        limit,
+        offset,
+        hasMore: offset + limit < totalCount
+      }
     });
 
   } catch (error) {
     console.error('[ERROR] 納品プラン取得エラー:', error);
     
-    // Prismaエラーやファイル読み込みエラーの場合はフォールバックデータを使用
+    // Prismaエラーの場合はフォールバックデータを使用
     if (MockFallback.isPrismaError(error)) {
       console.log('Using fallback data for delivery plans due to Prisma error');
       try {
         const fallbackData = {
           success: true,
-          deliveryPlans: []
+          deliveryPlans: [],
+          pagination: {
+            total: 0,
+            limit: 20,
+            offset: 0,
+            hasMore: false
+          }
         };
         return NextResponse.json(fallbackData);
       } catch (fallbackError) {

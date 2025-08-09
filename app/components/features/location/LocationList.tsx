@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 import BaseModal from '@/app/components/ui/BaseModal';
 import NexusButton from '@/app/components/ui/NexusButton';
+import { useRouter } from 'next/navigation';
 
 interface Location {
   code: string;
@@ -41,21 +42,28 @@ interface LocationListProps {
 }
 
 export default function LocationList({ searchQuery = '' }: LocationListProps) {
+  const modalScrollRef = useRef<HTMLDivElement>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [movements, setMovements] = useState<LocationMovement[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'movement'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'movement' | 'shipping'>('grid');
   const [filteredLocations, setFilteredLocations] = useState<Location[]>([]);
+  const [shippingData, setShippingData] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [locationToDelete, setLocationToDelete] = useState<string | null>(null);
+  const [isPickingModalOpen, setIsPickingModalOpen] = useState(false);
+  const [selectedPickingItems, setSelectedPickingItems] = useState<any[]>([]);
+  const [selectedLocationName, setSelectedLocationName] = useState<string>('');
   const { showToast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
     fetchLocations();
     fetchMovements();
+    fetchShippingData();
   }, []);
 
   // Filter locations based on search query
@@ -76,6 +84,23 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
     }
   }, [searchQuery, locations]);
 
+  // モーダルが開いたときにスクロール位置をリセット
+  useEffect(() => {
+    if (selectedLocation) {
+      // ページ全体を最上部にスクロール - 正しいスクロールコンテナを対象
+      const scrollContainer = document.querySelector('.page-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+      } else {
+        window.scrollTo(0, 0);
+      }
+      
+      if (modalScrollRef.current) {
+        modalScrollRef.current.scrollTop = 0;
+      }
+    }
+  }, [selectedLocation]);
+
   const fetchLocations = async () => {
     try {
       const response = await fetch('/api/locations');
@@ -87,7 +112,14 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
           type: mapLocationTypeFromApi(location.zone),
           capacity: location.capacity || 50,
           used: location._count?.products || 0,
-          products: location.products || []
+          products: (location.products || []).map((product: any) => ({
+            id: product.id,
+            name: product.name,
+            sku: product.sku,
+            category: product.category,
+            registeredAt: product.createdAt,
+            registeredBy: product.seller?.username || 'システム'
+          }))
         }));
         setLocations(fetchedLocations);
         setFilteredLocations(fetchedLocations);
@@ -109,7 +141,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               sku: 'CAM-001',
               category: 'camera_body',
               registeredAt: '2024-01-20T10:00:00',
-              registeredBy: '田中太郎',
+              registeredBy: 'セラーA',
             },
             {
               id: 'TWD-2024-003',
@@ -117,7 +149,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               sku: 'CAM-003',
               category: 'camera_body',
               registeredAt: '2024-01-19T15:00:00',
-              registeredBy: '佐藤花子',
+              registeredBy: 'セラーB',
             },
           ],
         },
@@ -136,7 +168,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               sku: 'LENS-001',
               category: 'lens',
               registeredAt: '2024-01-18T14:00:00',
-              registeredBy: '鈴木一郎',
+              registeredBy: 'セラーC',
             },
           ],
         },
@@ -197,6 +229,80 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
     } catch (error) {
       console.error('[ERROR] Fetch movements:', error);
     }
+  };
+
+  const fetchShippingData = async () => {
+    try {
+      const response = await fetch('/api/shipping');
+      if (response.ok) {
+        const data = await response.json();
+        // 出荷データをロケーションごとにグループ化
+        const groupedByLocation = groupShippingDataByLocation(data.todayShipments || []);
+        setShippingData(groupedByLocation);
+        return;
+      }
+      
+      // フォールバック: モックデータ
+      const mockShippingData = [
+        {
+          id: "ship-001",
+          orderId: "ORD-2024-0628-001",
+          productId: "TWD-CAM-011",
+          productName: "Nikon Z8",
+          customer: "山田太郎",
+          locationCode: "STD-A-01",
+          locationName: "標準棚A-01",
+          status: "ピッキング待ち",
+      
+          deadline: "16:00"
+        },
+        {
+          id: "ship-002",
+          orderId: "ORD-2024-0628-002",
+          productId: "TWD-LEN-005",
+          productName: "Canon RF 24-70mm F2.8",
+          customer: "顧客B",
+          locationCode: "STD-A-01",
+          locationName: "標準棚A-01",
+          status: "準備完了",
+      
+          deadline: "18:00"
+        },
+        {
+          id: "ship-003",
+          orderId: "ORD-2024-0628-003",
+          productId: "TWD-WAT-001",
+          productName: "Rolex Submariner",
+          customer: "田中一郎",
+          locationCode: "VAULT-01",
+          locationName: "金庫室01",
+          status: "出荷完了",
+      
+          deadline: "15:00"
+        }
+      ];
+      const groupedData = groupShippingDataByLocation(mockShippingData);
+      setShippingData(groupedData);
+    } catch (error) {
+      console.error('[ERROR] Fetch shipping data:', error);
+    }
+  };
+
+  const groupShippingDataByLocation = (shippingItems: any[]) => {
+    const grouped = shippingItems.reduce((acc, item) => {
+      const locationKey = item.locationCode || 'NO_LOCATION';
+      if (!acc[locationKey]) {
+        acc[locationKey] = {
+          locationCode: item.locationCode || 'NO_LOCATION',
+          locationName: item.locationName || '未設定',
+          items: []
+        };
+      }
+      acc[locationKey].items.push(item);
+      return acc;
+    }, {} as Record<string, any>);
+    
+    return Object.values(grouped);
   };
 
   const getLocationTypeLabel = (type: string) => {
@@ -375,6 +481,16 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
                 }`}
               >
                 移動履歴
+              </button>
+              <button
+                onClick={() => setViewMode('shipping')}
+                className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                  viewMode === 'shipping'
+                    ? 'bg-nexus-bg-primary text-nexus-yellow shadow-sm'
+                    : 'text-nexus-text-secondary hover:text-nexus-text-primary'
+                }`}
+              >
+                出荷リスト
               </button>
             </div>
           </div>
@@ -573,12 +689,148 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               ))}
             </div>
           )}
+
+          {/* 出荷リストビュー */}
+          {viewMode === 'shipping' && (
+            <div className="space-y-6">
+              {shippingData.length === 0 ? (
+                <div className="text-center p-8 text-nexus-text-secondary">
+                  本日の出荷予定はありません
+                </div>
+              ) : (
+                shippingData.filter(locationGroup => {
+                  // ピッキング待ちの商品があるロケーションのみ表示
+                  const activeItems = locationGroup.items.filter((item: any) => 
+                    item.status === 'ピッキング待ち' || item.status === '準備完了'
+                  );
+                  
+                  if (activeItems.length === 0) return false;
+                  
+                  // 検索条件でフィルタリング
+                  if (!searchQuery) return true;
+                  
+                  return locationGroup.locationCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    locationGroup.locationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    locationGroup.items.some((item: any) => 
+                      item.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      item.productId.toLowerCase().includes(searchQuery.toLowerCase())
+                    );
+                }).map((locationGroup) => {
+                  const activeItems = locationGroup.items.filter((item: any) => 
+                    item.status === 'ピッキング待ち' || item.status === '準備完了'
+                  );
+                  const completedItems = locationGroup.items.filter((item: any) => 
+                    item.status === '出荷完了' || item.status === 'ピッキング済み' || item.status === '梱包待ち'
+                  );
+                  
+                  return (
+                  <div key={locationGroup.locationCode} className="holo-card p-6">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-semibold text-nexus-text-primary flex items-center gap-3">
+                        <svg className="w-5 h-5 text-nexus-yellow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        {locationGroup.locationName}
+                        <span className="text-sm font-mono text-nexus-text-secondary">({locationGroup.locationCode})</span>
+                      </h3>
+                      <div className="flex items-center gap-4 text-sm text-nexus-text-secondary mt-1">
+                        <span>
+                          未処理: <span className="font-medium text-nexus-yellow">{activeItems.length}件</span>
+                        </span>
+                        {completedItems.length > 0 && (
+                          <span>
+                            処理済み: <span className="font-medium text-green-600">{completedItems.length}件</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      {locationGroup.items.map((item: any) => (
+                        <div 
+                          key={item.id} 
+                          className={`flex justify-between items-start p-4 rounded-lg border ${
+                            item.status === '出荷完了' || item.status === 'ピッキング済み' || item.status === '梱包待ち'
+                              ? 'bg-gray-50 border-gray-200 opacity-60' 
+                              : 'bg-nexus-bg-secondary border-nexus-border'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3">
+                              <h4 className={`font-medium ${
+                                item.status === '出荷完了' || item.status === 'ピッキング済み' || item.status === '梱包待ち'
+                                  ? 'text-gray-500'
+                                  : 'text-nexus-text-primary'
+                              }`}>{item.productName}</h4>
+                              
+                            </div>
+                            <p className="text-sm text-nexus-text-secondary font-mono mt-1">
+                              商品ID: {item.productId} | 注文ID: {item.orderId}
+                            </p>
+                            <div className="flex items-center gap-4 mt-2 text-sm">
+                              <span className="text-nexus-text-secondary">
+                                顧客: <span className="font-medium text-nexus-text-primary">{item.customer}</span>
+                              </span>
+                              <span className="text-nexus-text-secondary">
+                                締切: <span className={`font-medium ${
+                                  item.status === '出荷完了' || item.status === 'ピッキング済み' || item.status === '梱包待ち'
+                                    ? 'text-gray-500'
+                                    : 'text-nexus-yellow'
+                                }`}>{item.deadline}</span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className={`status-badge ${
+                              item.status === 'ピッキング待ち' ? 'warning' :
+                              item.status === 'ピッキング中' ? 'processing' :
+                              item.status === 'ピッキング済み' ? 'success' :
+                              item.status === '準備完了' ? 'success' :
+                              item.status === '梱包待ち' ? 'info' :
+                              item.status === '出荷完了' ? 'info' : 'info'
+                            }`}>
+                              {item.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="mt-4 pt-4 border-t border-nexus-border">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-nexus-text-secondary">
+                          このロケーションからピッキングする商品をまとめて処理できます
+                        </p>
+                        <NexusButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPickingItems(activeItems);
+                            setSelectedLocationName(locationGroup.locationName);
+                            setIsPickingModalOpen(true);
+                          }}
+                          disabled={activeItems.length === 0}
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                          </svg>
+                          ピッキングリスト作成
+                        </NexusButton>
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* ロケーション詳細モーダル */}
       {selectedLocation && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9000] p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-[10001] p-4 pt-8">
           <div className="intelligence-card global max-w-4xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-8 border-b border-nexus-border">
               <div className="flex justify-between items-start">
@@ -599,7 +851,7 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
               </div>
             </div>
 
-            <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]" ref={modalScrollRef}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <h4 className="font-semibold mb-3 text-nexus-text-primary">基本情報</h4>
@@ -719,6 +971,125 @@ export default function LocationList({ searchQuery = '' }: LocationListProps) {
             >
               削除する
             </NexusButton>
+          </div>
+        </div>
+      </BaseModal>
+
+      {/* ピッキングリスト作成確認モーダル */}
+      <BaseModal
+        isOpen={isPickingModalOpen}
+        onClose={() => {
+          setIsPickingModalOpen(false);
+          setSelectedPickingItems([]);
+          setSelectedLocationName('');
+        }}
+        title="ピッキングリスト作成"
+        size="lg"
+      >
+        <div>
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-nexus-text-primary mb-2">
+              {selectedLocationName}の商品
+            </h3>
+            <p className="text-sm text-nexus-text-secondary">
+              以下の{selectedPickingItems.length}件の商品のピッキングリストを作成します
+            </p>
+          </div>
+
+          {/* 商品リスト */}
+          <div className="bg-nexus-bg-secondary rounded-lg p-4 mb-6 max-h-60 overflow-y-auto">
+            {selectedPickingItems.map((item) => (
+              <div key={item.id} className="flex justify-between items-center py-3 border-b border-nexus-border last:border-b-0">
+                <div className="flex-1">
+                  <p className="font-medium text-nexus-text-primary">{item.productName}</p>
+                  <p className="text-sm text-nexus-text-secondary">
+                    商品ID: {item.productId} | 顧客: {item.customer}
+                  </p>
+                </div>
+                <div className="text-right">
+
+                  <p className="text-sm text-nexus-text-secondary mt-1">
+                    締切: {item.deadline}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 次のステップの説明 */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <h4 className="font-semibold text-blue-900 mb-2">🚀 次のステップ</h4>
+            <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
+              <li>ピッキング画面に移動して、リストを確認</li>
+              <li>指定されたロケーションから商品をピッキング</li>
+              <li>バーコードスキャンで商品確認</li>
+              <li>梱包・出荷作業へ進む</li>
+            </ol>
+          </div>
+
+          {/* アクションボタン */}
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-nexus-text-secondary">
+              ※ ピッキング画面で詳細な作業指示を確認できます
+            </p>
+            <div className="flex gap-3">
+              <NexusButton
+                onClick={() => {
+                  setIsPickingModalOpen(false);
+                  setSelectedPickingItems([]);
+                  setSelectedLocationName('');
+                }}
+                variant="default"
+              >
+                キャンセル
+              </NexusButton>
+              <NexusButton
+                onClick={async () => {
+                  try {
+                    // ピッキングリストを作成
+                    const response = await fetch('/api/picking', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        productIds: selectedPickingItems.map(item => item.productId),
+                        action: 'create_picking_list',
+                        locationCode: selectedPickingItems[0]?.locationCode,
+                        locationName: selectedLocationName
+                      })
+                    });
+
+                    if (response.ok) {
+                      showToast({
+                        type: 'success',
+                        title: 'ピッキングリスト作成完了',
+                        message: `${selectedLocationName}の商品${selectedPickingItems.length}件のピッキングリストを作成しました`,
+                        duration: 4000
+                      });
+
+                      // ピッキング画面へ遷移
+                      router.push('/staff/picking?from=location');
+                    } else {
+                      throw new Error('ピッキングリスト作成に失敗しました');
+                    }
+                  } catch (error) {
+                    console.error('Error creating picking list:', error);
+                    showToast({
+                      type: 'error',
+                      title: 'エラー',
+                      message: 'ピッキングリスト作成中にエラーが発生しました',
+                      duration: 4000
+                    });
+                  }
+                  
+                  setIsPickingModalOpen(false);
+                  setSelectedPickingItems([]);
+                  setSelectedLocationName('');
+                }}
+                variant="primary"
+              >
+                ピッキング画面へ進む
+              </NexusButton>
+            </div>
           </div>
         </div>
       </BaseModal>
