@@ -1,10 +1,12 @@
 'use client';
 
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import TaskDetailModal from '../../components/TaskDetailModal';
 import EditModal from '../../components/EditModal';
 import TaskCreationModal from '../../components/modals/TaskCreationModal';
 import { BaseModal, BusinessStatusIndicator, Pagination, NexusCheckbox, NexusLoadingSpinner } from '@/app/components/ui';
+import { CalendarIcon, PauseCircleIcon, EyeIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import NexusInput from '@/app/components/ui/NexusInput';
 import NexusSelect from '@/app/components/ui/NexusSelect';
 import NexusTextarea from '@/app/components/ui/NexusTextarea';
@@ -14,14 +16,16 @@ import {
   FunnelIcon,
   UsersIcon,
   PlusIcon,
+  UserGroupIcon,
 } from '@heroicons/react/24/outline';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
+import { useSystemSetting, useTaskCategories } from '@/lib/hooks/useMasterData';
 
 interface Task {
   id: string;
   title: string;
   description: string;
-  priority: 'high' | 'medium' | 'low';
+
   status: 'pending' | 'in_progress' | 'completed';
   assignedTo: string;
   dueDate: string;
@@ -35,11 +39,15 @@ interface Task {
 export default function StaffTasksPage() {
   const { showToast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
+  
+  // マスタデータの取得
+  const { setting: taskStatuses } = useSystemSetting('task_statuses');
+  const { categories: taskCategories, loading: categoriesLoading } = useTaskCategories();
   const [filter, setFilter] = useState<'all' | 'pending' | 'in_progress' | 'completed'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [dueDateFilter, setDueDateFilter] = useState<string>('all');
-  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<any>(null);
@@ -57,95 +65,50 @@ export default function StaffTasksPage() {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [paginatedTasks, setPaginatedTasks] = useState<Task[]>([]);
 
-  // デモデータ
+  // APIからタスクデータを取得
   useEffect(() => {
-    const demoTasks: Task[] = [
-      {
-        id: '1',
-        title: 'Canon EOS R5 検品作業',
-        description: 'カメラ本体の動作確認、外観チェック、付属品確認、シャッター回数測定',
-        priority: 'high',
-        status: 'pending',
-        assignedTo: '田中',
-        dueDate: '2024-06-29',
-        category: 'inspection',
-        productSku: 'CAM-001',
-        productName: 'Canon EOS R5',
-        estimatedTime: 90,
-        notes: 'セラーより「付属品完備」との申告あり',
-      },
-      {
-        id: '2',
-        title: 'Hermès Birkin 商品撮影',
-        description: '全角度撮影、真贋確認、状態詳細記録',
-        priority: 'high',
-        status: 'in_progress',
-        assignedTo: '佐藤',
-        dueDate: '2024-06-28',
-        category: 'photography',
-        productSku: 'ACC-003',
-        productName: 'Hermès Birkin 30',
-        estimatedTime: 120,
-        notes: 'プレミアム商品のため特別な撮影ライティング必要',
-      },
-      {
-        id: '3',
-        title: 'Rolex Submariner 梱包・出荷',
-        description: '高級時計用梱包材使用、保険付き配送手配',
-        priority: 'medium',
-        status: 'pending',
-        assignedTo: '鈴木',
-        dueDate: '2024-06-30',
-        category: 'shipping',
-        productSku: 'WAT-001',
-        productName: 'Rolex Submariner',
-        estimatedTime: 45,
-        notes: '購入者指定の配送時間：午前中',
-      },
-      {
-        id: '4',
-        title: 'Sony FE 24-70mm 返品処理',
-        description: '返品商品の状態確認、再出品可否判定、写真更新',
-        priority: 'medium',
-        status: 'completed',
-        assignedTo: '山田',
-        dueDate: '2024-06-27',
-        category: 'returns',
-        productSku: 'LEN-002',
-        productName: 'Sony FE 24-70mm f/2.8',
-        estimatedTime: 60,
-        notes: '顧客理由による返品、商品状態良好',
-      },
-      {
-        id: '5',
-        title: 'Leica M11 eBay出品作業',
-        description: '商品説明文作成、価格設定、カテゴリー設定',
-        priority: 'low',
-        status: 'pending',
-        assignedTo: '田中',
-        dueDate: '2024-07-01',
-        category: 'listing',
-        productSku: 'CAM-005',
-        productName: 'Leica M11',
-        estimatedTime: 75,
-        notes: '類似商品の売却価格を参考に価格設定',
-      },
-      {
-        id: '6',
-        title: 'Nikon Z9 検品・撮影',
-        description: '動作確認後、商品撮影まで一括対応',
-        priority: 'medium',
-        status: 'pending',
-        assignedTo: '佐藤',
-        dueDate: '2024-07-02',
-        category: 'inspection',
-        productSku: 'CAM-006',
-        productName: 'Nikon Z9',
-        estimatedTime: 105,
-      },
-    ];
-    setTasks(demoTasks);
-    setLoading(false);
+    const fetchTasks = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/staff/tasks');
+        if (!response.ok) {
+          throw new Error('Failed to fetch tasks');
+        }
+        const data = await response.json();
+        
+        // APIレスポンスの形式に合わせてデータを変換
+        const tasksData: Task[] = data.tasks ? data.tasks.map((task: any) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+
+          status: task.status,
+          assignedTo: task.assignedTo || 'スタッフ',
+          dueDate: task.dueDate,
+          category: task.category,
+          productSku: task.productSku,
+          productName: task.productName,
+          estimatedTime: task.estimatedTime || 60,
+          notes: task.notes,
+        })) : [];
+        
+        setTasks(tasksData);
+        console.log(`✅ タスクデータ取得完了: ${tasksData.length}件`);
+      } catch (error) {
+        console.error('タスクデータ取得エラー:', error);
+        showToast({
+          title: 'データ取得エラー',
+          message: 'タスクデータの取得に失敗しました',
+          type: 'error'
+        });
+        // フォールバック: 空配列
+        setTasks([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTasks();
   }, []);
 
   const filteredTasks = useMemo(() => {
@@ -159,8 +122,7 @@ export default function StaffTasksPage() {
       // 担当者フィルター
       if (assigneeFilter !== 'all' && task.assignedTo !== assigneeFilter) return false;
       
-      // 優先度フィルター
-      if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
+
       
       // 期限フィルター
       if (dueDateFilter !== 'all') {
@@ -207,7 +169,7 @@ export default function StaffTasksPage() {
       
       return true;
     });
-  }, [tasks, filter, categoryFilter, assigneeFilter, priorityFilter, dueDateFilter, searchQuery]);
+  }, [tasks, filter, categoryFilter, assigneeFilter, dueDateFilter, searchQuery]);
 
   // ページネーション
   useEffect(() => {
@@ -219,13 +181,9 @@ export default function StaffTasksPage() {
   // フィルタ変更時はページを1に戻す
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, categoryFilter, assigneeFilter, priorityFilter, dueDateFilter, searchQuery]);
+  }, [filter, categoryFilter, assigneeFilter, dueDateFilter, searchQuery]);
 
-  const priorityLabels: Record<string, string> = {
-    high: '高',
-    medium: '中',
-    low: '低'
-  };
+
 
 
 
@@ -309,9 +267,10 @@ export default function StaffTasksPage() {
       assignee: task.assignedTo,
       dueDate: task.dueDate,
       status: task.status,
-      priority: task.priority,
+      priority: 'medium', // デフォルト優先度を設定
       description: task.description,
       notes: task.notes
+      // attachments, commentsは表示しない仕様
     };
     setSelectedTask(taskForModal);
     setIsDetailModalOpen(true);
@@ -405,16 +364,16 @@ export default function StaffTasksPage() {
       pending: filteredTasks.filter(t => t.status === 'pending').length,
       inProgress: filteredTasks.filter(t => t.status === 'in_progress').length,
       completed: filteredTasks.filter(t => t.status === 'completed').length,
-      highPriority: filteredTasks.filter(t => t.priority === 'high' && t.status !== 'completed').length,
+
     };
   }, [filteredTasks]);
 
   const taskCategories = [
-    { id: 'urgent', name: '緊急タスク', icon: '🔥', color: 'americas' },
-    { id: 'today', name: '本日完了', icon: '📅', color: 'europe' },
-    { id: 'pending', name: '保留中', icon: '⏸️', color: 'asia' },
-    { id: 'review', name: 'レビュー待ち', icon: '👀', color: 'africa' },
-    { id: 'completed', name: '完了済み', icon: '✅', color: 'americas' }
+
+    { id: 'today', name: '本日完了', icon: CalendarIcon, color: 'europe' },
+    { id: 'pending', name: '保留中', icon: PauseCircleIcon, color: 'asia' },
+    { id: 'review', name: 'レビュー待ち', icon: EyeIcon, color: 'africa' },
+    { id: 'completed', name: '完了済み', icon: CheckCircleIcon, color: 'americas' }
   ];
 
   const handleTaskComplete = (taskId: string) => {
@@ -482,6 +441,10 @@ export default function StaffTasksPage() {
     }
   };
 
+  const handleCreateTask = () => {
+    setShowCreateModal(true);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -490,189 +453,118 @@ export default function StaffTasksPage() {
     );
   }
 
+  const headerActions = (
+    <>
+      <NexusButton
+        onClick={handleCreateTask}
+        variant="primary"
+        icon={<PlusIcon className="w-5 h-5" />}
+      >
+        <span className="hidden sm:inline">新規タスク作成</span>
+        <span className="sm:hidden">新規作成</span>
+      </NexusButton>
+      <NexusButton
+        onClick={handleBulkAssign}
+        variant="secondary"
+        icon={<UserGroupIcon className="w-5 h-5" />}
+        disabled={selectedTasks.length === 0}
+      >
+        <span className="hidden sm:inline">一括割り当て</span>
+        <span className="sm:hidden">一括</span>
+      </NexusButton>
+    </>
+  );
+
   return (
     <DashboardLayout userType="staff">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="intelligence-card global">
-          <div className="p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              {/* Title Section */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-2">
-                  <svg className="w-8 h-8 text-nexus-yellow flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                    タスク管理
-                  </h1>
-                </div>
-                <p className="text-nexus-text-secondary">
-                  作業タスクの詳細管理と進捗追跡
-                </p>
-              </div>
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="タスク管理"
+          subtitle="作業タスクの詳細管理と進捗追跡"
+          userType="staff"
+          iconType="tasks"
+          actions={headerActions}
+        />
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 lg:flex-shrink-0">
-                <NexusButton
-                  onClick={() => {
-                    showToast({
-                      type: 'info',
-                      title: '一括操作',
-                      message: '一括操作メニューを開きます',
-                      duration: 3000
-                    });
-                  }}
-                  variant="default"
-                  size="md"
-                  data-testid="bulk-operations-button"
-                  icon={
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-                    </svg>
-                  }
-                >
-                  <span className="hidden sm:inline">一括操作</span>
-                  <span className="sm:hidden">一括</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsFilterModalOpen(true)}
-                  variant="default"
-                  size="md"
-                  data-testid="filter-settings-button"
-                  icon={<FunnelIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">フィルター設定</span>
-                  <span className="sm:hidden">フィルター</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsBulkAssignModalOpen(true)}
-                  variant="default"
-                  size="md"
-                  data-testid="bulk-assign-button"
-                  icon={<UsersIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">タスク一括割当</span>
-                  <span className="sm:hidden">一括割当</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setShowCreateModal(true)}
-                  variant="primary"
-                  size="md"
-                  data-testid="create-task-button"
-                  icon={<PlusIcon className="w-5 h-5" />}
-                >
-                  <span className="hidden sm:inline">新規タスク作成</span>
-                  <span className="sm:hidden">新規作成</span>
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="intelligence-metrics">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-            <div className="intelligence-card global">
-              <div className="p-8">
+        {/* タスク管理統計 - 他の画面と統一されたスタイル */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-white rounded-xl border border-nexus-border p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                  </div>
-                  <span className="status-badge info">総計</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {stats.total}
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  総タスク数
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card europe">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <span className="status-badge">待機</span>
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-orange-600 text-white">待機</span>
                 </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {stats.pending}
+            <div className="text-3xl font-bold text-nexus-text-primary mb-2">
+              {stats.pending}件
                 </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  待機中
+            <div className="text-nexus-text-secondary font-medium">
+              待機中タスク
                 </div>
-              </div>
+            <div className="text-xs text-nexus-text-secondary mt-1">今日開始予定</div>
             </div>
 
-            <div className="intelligence-card asia">
-              <div className="p-8">
+          <div className="bg-white rounded-xl border border-nexus-border p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb blue">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                   </div>
-                  <span className="status-badge info">実行中</span>
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">進行中</span>
                 </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {stats.inProgress}
+            <div className="text-3xl font-bold text-nexus-text-primary mb-2">
+              {stats.inProgress}件
                 </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  作業中
+            <div className="text-nexus-text-secondary font-medium">
+              作業中タスク
                 </div>
-              </div>
+            <div className="text-xs text-nexus-text-secondary mt-1">進行中の作業</div>
             </div>
 
-            <div className="intelligence-card africa">
-              <div className="p-8">
+          <div className="bg-white rounded-xl border border-nexus-border p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb green">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <span className="status-badge success">完了</span>
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">急ぎ</span>
                 </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {stats.completed}
+            <div className="text-3xl font-bold text-green-600 mb-2">
+              {stats.completed}件
                 </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  完了済み
+            <div className="text-nexus-text-secondary font-medium">
+              完了済み
                 </div>
-              </div>
+            <div className="text-xs text-nexus-text-secondary mt-1">今日の実績</div>
             </div>
 
-            <div className="intelligence-card americas">
-              <div className="p-8">
+          <div className="bg-white rounded-xl border border-nexus-border p-6 hover:shadow-lg transition-shadow">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb red">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <span className="status-badge danger">緊急</span>
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">今日</span>
                 </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {stats.highPriority}
+            <div className="text-3xl font-bold text-green-600 mb-2">
+              {stats.completed}件
                 </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  緊急タスク
+            <div className="text-nexus-text-secondary font-medium">
+              本日完了
                 </div>
-              </div>
-            </div>
+            <div className="text-xs text-nexus-text-secondary mt-1">今日の実績</div>
           </div>
         </div>
 
-        {/* Filters and Task List */}
-        <div className="intelligence-card global">
-          <div className="p-8">
+        {/* メインコンテンツ - 他の画面と統一されたレイアウト */}
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-nexus-border p-6">
             {/* Search Bar */}
             <div className="mb-6">
               <div className="relative">
@@ -713,9 +605,13 @@ export default function StaffTasksPage() {
                   className="w-full px-3 py-2 bg-nexus-bg-secondary border border-nexus-border rounded-lg text-sm text-nexus-text-primary"
                 >
                   <option value="all">すべて</option>
-                  <option value="pending">待機中</option>
-                  <option value="in_progress">作業中</option>
-                  <option value="completed">完了</option>
+                  {(taskStatuses?.parsedValue ? taskStatuses.parsedValue : [
+                    { key: 'pending', nameJa: '待機中' },
+                    { key: 'in_progress', nameJa: '作業中' },
+                    { key: 'completed', nameJa: '完了' }
+                  ]).map((status: any) => (
+                    <option key={status.key} value={status.key}>{status.nameJa}</option>
+                  ))}
                 </select>
               </div>
 
@@ -729,11 +625,15 @@ export default function StaffTasksPage() {
                   className="w-full px-3 py-2 bg-nexus-bg-secondary border border-nexus-border rounded-lg text-sm text-nexus-text-primary"
                 >
                   <option value="all">すべて</option>
-                  <option value="inspection">検品</option>
-                  <option value="photography">撮影</option>
-                  <option value="listing">出品</option>
-                  <option value="shipping">出荷</option>
-                  <option value="returns">返品</option>
+                  {(!categoriesLoading && taskCategories.length > 0 ? taskCategories : [
+                    { key: 'inspection', nameJa: '検品' },
+                    { key: 'photography', nameJa: '撮影' },
+                    { key: 'listing', nameJa: '出品' },
+                    { key: 'shipping', nameJa: '出荷' },
+                    { key: 'returns', nameJa: '返品' }
+                  ]).map((category: any) => (
+                    <option key={category.key} value={category.key}>{category.nameJa}</option>
+                  ))}
                 </select>
               </div>
 
@@ -752,21 +652,7 @@ export default function StaffTasksPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-nexus-text-secondary mb-2">
-                  優先度
-                </label>
-                <select
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                  className="w-full px-3 py-2 bg-nexus-bg-secondary border border-nexus-border rounded-lg text-sm text-nexus-text-primary"
-                >
-                  <option value="all">すべて</option>
-                  <option value="high">高</option>
-                  <option value="medium">中</option>
-                  <option value="low">低</option>
-                </select>
-              </div>
+
 
               <div>
                 <label className="block text-sm font-medium text-nexus-text-secondary mb-2">
@@ -786,122 +672,67 @@ export default function StaffTasksPage() {
               </div>
             </div>
 
-            {/* Task List */}
-            <div className="holo-table">
+            {/* タスクテーブル */}
+            <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="holo-header">
-                  <tr>
-                    <th className="text-left">タスク情報</th>
-                    <th className="text-left">担当者</th>
-                    <th className="text-left">期限・時間</th>
-                    <th className="text-left">ステータス</th>
-                    <th className="text-right">アクション</th>
+                <thead>
+                  <tr className="border-b border-nexus-border">
+                    <th className="text-left p-4 font-medium text-nexus-text-secondary">タスク情報</th>
+                    <th className="text-center p-4 font-medium text-nexus-text-secondary">担当者</th>
+                    <th className="text-center p-4 font-medium text-nexus-text-secondary">期限・時間</th>
+                    <th className="text-center p-4 font-medium text-nexus-text-secondary">ステータス</th>
+                    <th className="text-center p-4 font-medium text-nexus-text-secondary">操作</th>
                   </tr>
                 </thead>
-                <tbody className="holo-body">
+                <tbody>
                   {paginatedTasks.map((task) => (
-                    <tr key={task.id} className="holo-row">
-                      <td>
-                        <div className="flex items-start space-x-3">
-                          <span className="action-orb">{categoryIcons[task.category]}</span>
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-1">
-                              <h3 className="font-semibold text-nexus-text-primary">
+                    <tr key={task.id} className="border-b border-nexus-border hover:bg-nexus-bg-tertiary transition-colors">
+                      <td className="p-4">
+                        <div className="font-medium text-nexus-text-primary mb-1">
                                 {task.title}
-                              </h3>
-                              {task.productSku && (
-                                <span className="cert-nano cert-premium">
-                                  {task.productSku}
-                                </span>
-                              )}
                             </div>
-                            <p className="text-sm text-nexus-text-secondary mb-2">
+                        <div className="text-sm text-nexus-text-secondary mb-2">
                               {task.description}
-                            </p>
+                        </div>
                             {task.productName && (
-                              <div className="flex items-center gap-1 text-sm font-medium text-nexus-yellow">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                </svg>
-                                {task.productName}
+                          <div className="text-xs text-nexus-text-secondary">
+                            商品: {task.productName}
                               </div>
                             )}
-                            {task.notes && (
-                              <div className="mt-2 p-2 bg-nexus-bg-secondary rounded text-xs text-nexus-text-secondary">
-                                <span className="font-medium">備考:</span> {task.notes}
+                        {task.productSku && (
+                          <div className="text-xs text-nexus-text-secondary">
+                            SKU: {task.productSku}
                               </div>
                             )}
-                          </div>
-                        </div>
                       </td>
-                      <td>
-                        <div className="flex items-center gap-1 text-sm font-medium text-nexus-text-primary">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                          </svg>
+                      <td className="p-4 text-center">
+                        <span className="text-sm text-nexus-text-primary">
                           {task.assignedTo}
-                        </div>
+                        </span>
                       </td>
-                      <td>
-                        <div className="text-sm">
-                          <div className="flex items-center gap-1 text-nexus-text-primary">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
+                      <td className="p-4 text-center">
+                        <div className="text-sm text-nexus-text-primary">
                             {task.dueDate}
                           </div>
-                          <div className="flex items-center gap-1 text-nexus-text-secondary">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                        <div className="text-xs text-nexus-text-secondary">
                             {task.estimatedTime}分
-                          </div>
                         </div>
                       </td>
-                      <td>
-                        <div className="flex flex-col space-y-2">
-                          <span className="cert-nano cert-premium">
-                            {priorityLabels[task.priority]}
-                          </span>
+                      <td className="p-4">
+                        <div className="flex flex-col items-center space-y-1">
+
                           <BusinessStatusIndicator status={task.status} size="sm" />
                         </div>
                       </td>
-                      <td className="text-right">
-                        <div className="flex justify-end space-x-2">
-                          {task.status === 'pending' && (
-                            <button
-                              onClick={() => updateTaskStatus(task.id, 'in_progress')}
-                              className="nexus-button primary text-xs"
-                            >
-                              開始
-                            </button>
-                          )}
-                          {task.status === 'in_progress' && (
-                            <button
-                              onClick={() => updateTaskStatus(task.id, 'completed')}
-                              className="nexus-button primary text-xs"
-                            >
-                              完了
-                            </button>
-                          )}
-                          <button 
+                      <td className="p-4">
+                        <div className="flex justify-center">
+                          <NexusButton
                             onClick={() => handleTaskDetail(task)}
-                            className="nexus-button text-xs"
+                            size="sm"
+                            variant="primary"
                           >
                             詳細
-                          </button>
-                          <button 
-                            onClick={() => handleTaskEdit(task)}
-                            className="nexus-button text-xs"
-                          >
-                            編集
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="nexus-button text-xs text-red-600 hover:text-red-700"
-                          >
-                            削除
-                          </button>
+                          </NexusButton>
                         </div>
                       </td>
                     </tr>
@@ -987,6 +818,12 @@ export default function StaffTasksPage() {
             setSelectedTask(task);
             setIsEditModalOpen(true);
           }}
+          onStatusChange={updateTaskStatus}
+          onDelete={async (taskId) => {
+            setTasks(prev => prev.filter(t => t.id !== taskId));
+            setIsDetailModalOpen(false);
+            setSelectedTask(null);
+          }}
         />
 
         {/* Edit Modal */}
@@ -1060,7 +897,7 @@ export default function StaffTasksPage() {
                     タスクタグ
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    {['緊急', '重要', '簡単', '複雑', '要確認'].map(tag => (
+                    {['重要', '簡単', '複雑', '要確認'].map(tag => (
                       <NexusCheckbox
                         key={tag}
                         label={tag}
@@ -1078,7 +915,7 @@ export default function StaffTasksPage() {
                     setFilter('all');
                     setCategoryFilter('all');
                     setAssigneeFilter('all');
-                    setPriorityFilter('all');
+
                     setDueDateFilter('all');
                     setSearchQuery('');
                     showToast({
@@ -1138,11 +975,11 @@ export default function StaffTasksPage() {
               </label>
               <div className="space-y-2 border border-nexus-border rounded-lg p-3">
                 <NexusCheckbox
-                  label="田中太郎"
+                  label="スタッフA"
                   size="sm"
                 />
                 <NexusCheckbox
-                  label="佐藤花子"
+                  label="スタッフB"
                   size="sm"
                 />
                 <NexusCheckbox
@@ -1157,18 +994,7 @@ export default function StaffTasksPage() {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-nexus-text-secondary mb-2">
-                  優先度設定
-                </label>
-                <select className="w-full px-3 py-2 border border-nexus-border rounded-lg focus:ring-2 focus:ring-nexus-blue">
-                  <option value="">優先度を選択</option>
-                  <option value="low">低</option>
-                  <option value="medium">中</option>
-                  <option value="high">高</option>
-                  <option value="urgent">緊急</option>
-                </select>
-              </div>
+
               <div>
                 <label className="block text-sm font-medium text-nexus-text-secondary mb-2">
                   期限設定
@@ -1234,112 +1060,9 @@ export default function StaffTasksPage() {
           </div>
         </BaseModal>
 
-        {/* 追加コンテンツ - スクロールテスト用 */}
-        <div className="intelligence-card global">
-          <div className="p-8">
-            <h3 className="text-lg font-display font-medium text-nexus-text-primary mb-4">
-              タスク統計・分析
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <h4 className="font-medium text-nexus-text-primary">作業効率分析</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">平均完了時間</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">82分</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">今日の完了率</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">75%</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">期限内完了率</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">92%</span>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <h4 className="font-medium text-nexus-text-primary">カテゴリ別分析</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">検品作業</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">45%</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">撮影作業</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">25%</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">出荷作業</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">20%</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-nexus-text-secondary">その他</span>
-                    <span className="text-sm font-medium text-nexus-text-primary">10%</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* さらに追加コンテンツ */}
-        <div className="intelligence-card europe">
-          <div className="p-8">
-            <h3 className="text-lg font-display font-medium text-nexus-text-primary mb-4">
-              チーム別パフォーマンス
-            </h3>
-            <div className="space-y-4">
-              {['田中', '佐藤', '鈴木', '山田'].map((member, index) => (
-                <div key={member} className="flex items-center justify-between p-4 bg-nexus-bg-secondary rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                      {member.charAt(0)}
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-nexus-text-primary">{member}</h4>
-                      <p className="text-sm text-nexus-text-secondary">完了タスク: {5 + index * 2}件</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-nexus-text-primary">{95 - index * 3}%</div>
-                    <div className="text-xs text-nexus-text-secondary">効率スコア</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        {/* 最後のコンテンツ */}
-        <div className="intelligence-card asia">
-          <div className="p-8">
-            <h3 className="text-lg font-display font-medium text-nexus-text-primary mb-4">
-              今週の予定
-            </h3>
-            <div className="space-y-3">
-              {Array.from({ length: 7 }, (_, i) => (
-                <div key={i} className="flex items-center justify-between p-3 border border-nexus-border rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-nexus-text-primary">
-                      {new Date(Date.now() + i * 24 * 60 * 60 * 1000).toLocaleDateString('ja-JP', { 
-                        month: 'short', 
-                        day: 'numeric', 
-                        weekday: 'short' 
-                      })}
-                    </h4>
-                    <p className="text-sm text-nexus-text-secondary">
-                      予定タスク: {Math.floor(Math.random() * 5) + 2}件
-                    </p>
-                  </div>
-                  <div className="text-sm text-nexus-text-secondary">
-                    {Math.floor(Math.random() * 200) + 100}分
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+
 
 
       </div>

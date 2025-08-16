@@ -5,9 +5,10 @@ import NexusHeader from './NexusHeader';
 import SearchModal from '../SearchModal';
 import UnifiedProductFlow from '../features/flow-nav/UnifiedProductFlow';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 import { useModal } from '../ui/ModalContext';
+import BarcodeTestButton from '../ui/BarcodeTestButton';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -103,14 +104,10 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
-  timeline: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
+
   delivery: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   )
 };
@@ -127,10 +124,14 @@ export default function DashboardLayout({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isFlowCollapsed, setIsFlowCollapsed] = useState(false);
   const [isInitialStabilizing, setIsInitialStabilizing] = useState(true);
+  const [barcodeBuffer, setBarcodeBuffer] = useState('');
+  const [isProcessingBarcode, setIsProcessingBarcode] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const barcodeTimerRef = useRef<NodeJS.Timeout>();
   const pathname = usePathname();
+  const router = useRouter();
   const { showToast } = useToast();
-  const { isBusinessFlowCollapsed, setIsBusinessFlowCollapsed } = useModal();
+  const { isBusinessFlowCollapsed, setIsBusinessFlowCollapsed, isAnyModalOpen } = useModal();
 
   const getCurrentTime = () => {
     const now = new Date();
@@ -156,6 +157,162 @@ export default function DashboardLayout({
     return () => clearInterval(interval);
   }, []);
 
+  // グローバルバーコードリスナー
+  useEffect(() => {
+    const handleKeyPress = async (e: KeyboardEvent) => {
+      // ログイン画面では無効化
+      if (pathname?.includes('/login')) {
+        return;
+      }
+
+      // 入力フィールドにフォーカスがある場合は無効化
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement && 
+          (activeElement.tagName === 'INPUT' || 
+           activeElement.tagName === 'TEXTAREA' || 
+           activeElement.tagName === 'SELECT' ||
+           activeElement.contentEditable === 'true')) {
+        return;
+      }
+
+      // エンターキーの処理
+      if (e.key === 'Enter' && barcodeBuffer.length > 0) {
+        e.preventDefault();
+        const scannedCode = barcodeBuffer;
+        setBarcodeBuffer('');
+        
+        // バーコードの最小長チェック（商品コードは通常8文字以上）
+        if (scannedCode.length < 8) {
+          return;
+        }
+
+        // 処理中の場合はスキップ
+        if (isProcessingBarcode) {
+          return;
+        }
+
+        setIsProcessingBarcode(true);
+        console.log('[グローバルバーコード] スキャン検知:', scannedCode);
+
+        try {
+          // バーコードから商品情報を取得
+          const response = await fetch(`/api/products/barcode/${encodeURIComponent(scannedCode)}`);
+          
+          if (!response.ok) {
+            const error = await response.json();
+            showToast({
+              type: 'error',
+              title: '商品が見つかりません',
+              message: `バーコード: ${scannedCode}`,
+              duration: 3000
+            });
+            return;
+          }
+
+          const product = await response.json();
+          console.log('[グローバルバーコード] 商品発見:', product);
+
+          // デモ商品の場合は通知
+          if (product.isDemo) {
+            showToast({
+              type: 'info',
+              title: 'デモ商品',
+              message: product.message,
+              duration: 3000
+            });
+          }
+
+          // 商品検品チェックリストの棚保管タブへ遷移
+          showToast({
+            type: 'success',
+            title: '商品スキャン成功',
+            message: `${product.name} の棚保管画面へ移動します`,
+            duration: 2000
+          });
+
+          // 棚保管タブ（step=4）へ遷移
+          setTimeout(() => {
+            router.push(`/staff/inspection/${product.id}?step=4`);
+            
+            // 遷移後に棚番号入力フィールドにフォーカス設定
+            setTimeout(() => {
+              const focusShelfInput = () => {
+                const shelfInput = document.querySelector('input[placeholder*="棚番号"]') as HTMLInputElement;
+                if (shelfInput) {
+                  console.log('[グローバルバーコード] 棚番号入力フィールドにフォーカス設定成功');
+                  shelfInput.focus();
+                  shelfInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  return true;
+                }
+                return false;
+              };
+              
+              // 複数回試行して確実にフォーカス設定
+              let attempts = 0;
+              const tryFocus = () => {
+                attempts++;
+                if (focusShelfInput() || attempts >= 10) {
+                  return; // 成功または最大試行回数に達したら終了
+                }
+                setTimeout(tryFocus, 300); // 300ms間隔で再試行
+              };
+              
+              tryFocus();
+            }, 1000);
+          }, 500);
+
+        } catch (error) {
+          console.error('[グローバルバーコード] エラー:', error);
+          showToast({
+            type: 'error',
+            title: 'エラー',
+            message: 'バーコード処理中にエラーが発生しました',
+            duration: 3000
+          });
+        } finally {
+          setIsProcessingBarcode(false);
+        }
+        return;
+      }
+
+      // 印字可能な文字の場合はバッファに追加
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        setBarcodeBuffer(prev => prev + e.key);
+        
+        // タイマーをリセット（高速入力を検知）
+        if (barcodeTimerRef.current) {
+          clearTimeout(barcodeTimerRef.current);
+        }
+        
+        // 100ms以内に次の入力がない場合はバッファをクリア
+        barcodeTimerRef.current = setTimeout(() => {
+          setBarcodeBuffer('');
+        }, 100);
+      }
+    };
+
+    // キーボードイベントリスナーを追加
+    window.addEventListener('keypress', handleKeyPress);
+
+    return () => {
+      window.removeEventListener('keypress', handleKeyPress);
+      if (barcodeTimerRef.current) {
+        clearTimeout(barcodeTimerRef.current);
+      }
+    };
+  }, [barcodeBuffer, isProcessingBarcode, pathname, router, showToast]);
+
+  // モーダル表示時の業務フロー制御
+  useEffect(() => {
+    if (isAnyModalOpen) {
+      console.log('🔴 モーダル開: 業務フローを閉じます');
+      setIsFlowCollapsed(true);
+    } else {
+      console.log('🟢 モーダル閉: 業務フローの自動制御を復活します');
+      // モーダル閉時は元の状態に戻さない（スクロール制御に任せる）
+    }
+  }, [isAnyModalOpen]);
+
   // モバイルメニューが開いているときスクロールを無効化
   useEffect(() => {
     if (isMobileMenuOpen) {
@@ -179,11 +336,26 @@ export default function DashboardLayout({
       // 初期安定化状態を設定
       setIsInitialStabilizing(true);
       
-      // 2秒後に自動制御を有効化
+      // 【修正】DOM準備完了チェック付きの短縮初期化
+      const checkAndStabilize = () => {
+        const scrollContainer = document.querySelector('.page-scroll-container');
+        if (scrollContainer && scrollContainer.scrollHeight > 0) {
+          // DOM準備完了（ログ削除）
+          setIsInitialStabilizing(false);
+        } else {
+          // まだ準備できていない場合は少し待つ
+          setTimeout(checkAndStabilize, 200);
+        }
+      };
+      
+      // 即座にチェック開始
+      setTimeout(checkAndStabilize, 500);
+      
+      // 最大でも1.5秒で強制終了
       const stabilizeTimer = setTimeout(() => {
+        // 強制安定化終了（ログ削除）
         setIsInitialStabilizing(false);
-        console.log('初期安定化完了: 自動フロー制御を有効化');
-      }, 2000);
+      }, 1500);
       
       return () => clearTimeout(stabilizeTimer);
     }
@@ -191,23 +363,42 @@ export default function DashboardLayout({
 
   // 自動スクロール検知によるフロー開閉
   useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    console.log('スクロール検知初期化:', scrollContainer);
-    if (!scrollContainer) {
-      console.log('scrollContainer が null です');
+    // 【修正】初期化の強化 - 複数回試行
+    const initializeScrollHandler = () => {
+      const scrollContainer = scrollContainerRef.current;
+      // スクロール検知初期化（ログ削除）
+      
+      if (!scrollContainer) {
+        // scrollContainer null - 再試行中（ログ削除）
+        // 少し待ってから再試行
+        setTimeout(initializeScrollHandler, 100);
+        return false;
+      }
+      return true;
+    };
+
+    if (!initializeScrollHandler()) {
       return;
     }
+
+    const scrollContainer = scrollContainerRef.current!;
 
     let ticking = false;
     let scrollTimeout: NodeJS.Timeout;
     let currentLastScrollY = 0;
     
     const handleScroll = () => {
-      console.log('🚀 handleScroll が呼ばれました - scrollTop:', scrollContainer.scrollTop);
+      // スクロールログは業務フロー制御のみに限定
       
       // 初期安定化中は自動制御を無効化
       if (isInitialStabilizing) {
-        console.log('初期安定化中: 自動フロー制御をスキップ');
+        // 初期安定化中（ログ削除）
+        return;
+      }
+      
+      // モーダル表示中は自動制御を無効化
+      if (isAnyModalOpen) {
+        console.log('🔴 モーダル表示中: スクロール連動制御をスキップ');
         return;
       }
       
@@ -217,32 +408,22 @@ export default function DashboardLayout({
           const scrollDelta = currentScrollY - currentLastScrollY;
           const isScrollingDown = scrollDelta > 0;
           const isScrollingUp = scrollDelta < 0;
-          const scrollThreshold = 25;
+          const scrollThreshold = 3;
           const topThreshold = 15;
           
-          console.log('スクロール検知:', {
-            currentScrollY,
-            scrollDelta,
-            isScrollingDown,
-            isScrollingUp,
-            isFlowCollapsed
-          });
-          
-          // 最上部付近では常に展開
-          if (currentScrollY < topThreshold) {
-            console.log('最上部: フロー展開');
-            setIsFlowCollapsed(false);
-          }
           // 十分な下スクロールで折りたたみ
-          else if (isScrollingDown && Math.abs(scrollDelta) > scrollThreshold && currentScrollY > 60) {
-            console.log('下スクロール: フロー折りたたみ');
-            setIsFlowCollapsed(true);
-          }
+          if (isScrollingDown && Math.abs(scrollDelta) > scrollThreshold && currentScrollY > 250 && !isFlowCollapsed) {
+              setIsFlowCollapsed(true);
+          } 
+          // 条件未満時のログは削除（不要なログを制限）
           // 十分な上スクロールで展開
+          // 【修正】上スクロールでも自動展開しない - 右上ボタンのみで開く
+          /*
           else if (isScrollingUp && Math.abs(scrollDelta) > scrollThreshold && currentScrollY > topThreshold) {
             console.log('上スクロール: フロー展開');
             setIsFlowCollapsed(false);
           }
+          */
           
           currentLastScrollY = currentScrollY;
           ticking = false;
@@ -258,46 +439,31 @@ export default function DashboardLayout({
           return;
         }
         
+        // モーダル表示中は自動制御を無効化
+        if (isAnyModalOpen) {
+          console.log('🔴 モーダル表示中: スクロール停止時制御をスキップ');
+          return;
+        }
+        
         // スクロール停止時の最上部チェック
+        // 【修正】スクロール停止時も自動展開しない - 右上ボタンのみで開く
+        /*
         if (scrollContainer.scrollTop < 15) {
           console.log('スクロール停止: 最上部でフロー展開');
           setIsFlowCollapsed(false);
         }
+        */
       }, 150);
     };
 
-    console.log('スクロールイベントリスナー追加');
-    const scrollDetails = {
-      scrollHeight: scrollContainer.scrollHeight,
-      clientHeight: scrollContainer.clientHeight,
-      scrollTop: scrollContainer.scrollTop,
-      hasScrollbar: scrollContainer.scrollHeight > scrollContainer.clientHeight,
-      offsetHeight: scrollContainer.offsetHeight,
-      className: scrollContainer.className,
-      tagName: scrollContainer.tagName,
-      style: {
-        overflow: scrollContainer.style.overflow,
-        overflowY: scrollContainer.style.overflowY,
-        height: scrollContainer.style.height,
-        maxHeight: scrollContainer.style.maxHeight
-      }
-    };
-    console.log('scrollContainer の詳細:', scrollDetails);
-    
-    // スクロール可能性をテスト
-    if (scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
-      console.warn('⚠️ スクロール不可: scrollHeight <= clientHeight');
-    } else {
-      console.log('✅ スクロール可能');
-    }
+    // スクロール初期化ログは削除（業務フロー制御のみ出力）
     
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
-      console.log('スクロールイベントリスナー削除');
       scrollContainer.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [isInitialStabilizing]);
+  }, [isInitialStabilizing, isAnyModalOpen, pathname]); // 【修正】pathnameを依存配列に追加
 
   const handleSearchSubmit = (query: string) => {
     setSearchQuery(query);
@@ -356,23 +522,13 @@ export default function DashboardLayout({
       href: '/billing',
       icon: icons.billing
     },
-    { 
-      label: '商品履歴', 
-      href: '/timeline',
-      icon: icons.timeline
-    },
   ];
 
   const staffMenuItems = [
     { 
-      label: 'スタッフダッシュボード', 
+      label: 'ダッシュボード', 
       href: '/staff/dashboard',
       icon: icons.dashboard
-    },
-    { 
-      label: 'タスク管理', 
-      href: '/staff/tasks',
-      icon: icons.tasks
     },
     { 
       label: '在庫管理', 
@@ -380,7 +536,7 @@ export default function DashboardLayout({
       icon: icons.inventory
     },
     { 
-      label: '検品・撮影', 
+      label: '検品管理', 
       href: '/staff/inspection',
       icon: icons.inspection
     },
@@ -418,7 +574,7 @@ export default function DashboardLayout({
       }
       return 'storage';
     }
-    if (pathname.includes('/tasks')) return 'inspection';
+
     if (pathname.includes('/shipping')) return 'shipping';
     return undefined;
   };
@@ -512,20 +668,8 @@ export default function DashboardLayout({
                       {item.icon}
                     </div>
                     {!isSidebarCollapsed && (
-                      <>
-                        <span className="font-medium text-sm flex-1 overflow-hidden text-ellipsis">
-                          {item.label}
-                        </span>
-                        {(item as any).badge && (
-                          <span className="bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">
-                            {(item as any).badge}
-                          </span>
-                        )}
-                      </>
-                    )}
-                    {isSidebarCollapsed && (item as any).badge && (
-                      <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
-                        {(item as any).badge > 9 ? '9+' : (item as any).badge}
+                      <span className="font-medium text-sm flex-1 overflow-hidden text-ellipsis">
+                        {item.label}
                       </span>
                     )}
                   </Link>
@@ -553,9 +697,17 @@ export default function DashboardLayout({
             <div className="flex items-center justify-between px-4 py-2">
               <h3 className="text-sm font-medium text-gray-700">業務フロー</h3>
               <button
-                onClick={() => setIsFlowCollapsed(!isFlowCollapsed)}
-                className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                title={isFlowCollapsed ? 'フローを展開' : 'フローを折りたたむ'}
+                onClick={() => {
+                  // モーダル表示中は手動トグル無効化
+                  if (isAnyModalOpen) {
+                    console.log('🔴 モーダル表示中: 手動トグル無効化');
+                    return;
+                  }
+                  setIsFlowCollapsed(!isFlowCollapsed);
+                }}
+                className={`p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors ${isAnyModalOpen ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={isAnyModalOpen ? 'モーダル表示中は操作できません' : (isFlowCollapsed ? 'フローを展開' : 'フローを折りたたむ')}
+                disabled={isAnyModalOpen}
               >
                 <svg 
                   className={`w-4 h-4 transition-transform ${isFlowCollapsed ? 'rotate-180' : ''}`} 
@@ -581,7 +733,7 @@ export default function DashboardLayout({
           {/* ページコンテンツ - レスポンシブ対応 */}
           <main className="flex-1 bg-gray-50 main-content" role="main" id="main-content">
             <div ref={scrollContainerRef} className="h-full overflow-y-auto page-scroll-container">
-              <div className="p-6 max-w-[1600px] mx-auto">
+              <div className="p-8 max-w-[1600px] min-w-[928px] mx-auto">
                 <div className="space-y-6">
                   {children}
                 </div>
@@ -599,6 +751,11 @@ export default function DashboardLayout({
         onClose={() => setIsSearchOpen(false)}
         query={searchQuery}
       />
+      
+      {/* バーコードテスター（開発中のみ） */}
+      {process.env.NODE_ENV === 'development' && (
+        <BarcodeTestButton />
+      )}
     </div>
   );
 }

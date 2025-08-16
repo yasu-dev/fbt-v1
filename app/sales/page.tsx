@@ -3,50 +3,360 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/app/components/layouts/DashboardLayout';
+import UnifiedPageHeader from '@/app/components/ui/UnifiedPageHeader';
 import {
-  Cog6ToothIcon,
-  TicketIcon,
+  FunnelIcon,
 } from '@heroicons/react/24/outline';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
-import HoloTable from '@/app/components/ui/HoloTable';
+import { useSystemSetting, useCarriers } from '@/lib/hooks/useMasterData';
+
 import NexusButton from '@/app/components/ui/NexusButton';
 import BaseModal from '@/app/components/ui/BaseModal';
 import { NexusLoadingSpinner, NexusSelect, NexusInput, NexusCheckbox, NexusTextarea } from '@/app/components/ui';
+import { BusinessStatusIndicator } from '@/app/components/ui/StatusIndicator';
+import ShippingLabelUploadModal from '@/app/components/modals/ShippingLabelUploadModal';
+import TrackingNumberDisplay from '@/app/components/ui/TrackingNumberDisplay';
+import { generateTrackingUrl } from '@/lib/utils/tracking';
+import FedExServiceModal from '@/app/components/modals/FedExServiceModal';
+import OrderDetailModal from '@/app/components/modals/OrderDetailModal';
+import { 
+  TruckIcon,
+  DocumentArrowUpIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
+  CameraIcon,
+  EyeIcon,
+  ClipboardDocumentCheckIcon
+} from '@heroicons/react/24/outline';
 
 export default function SalesPage() {
   const { showToast } = useToast();
   const [salesData, setSalesData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isFedexModalOpen, setIsFedexModalOpen] = useState(false);
+  const [selectedCarrier, setSelectedCarrier] = useState<string>('');
+  const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<any>(null);
+  const [selectedFedexService, setSelectedFedexService] = useState<string>('');
+  
+  // ページネーションとフィルター用の状態
+  const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [pageSize, setPageSize] = useState(20);
+  
+  // マスタデータの取得
+  const { setting: orderStatuses } = useSystemSetting('order_statuses');
+  const { carriers: carrierData, loading: carriersLoading } = useCarriers();
+  
   const router = useRouter();
 
-  useEffect(() => {
-    fetch('/api/sales')
-      .then((res) => res.json())
-      .then((data) => {
-        setSalesData(data);
-        setLoading(false);
-      });
-  }, []);
+  // 配送業者のリスト（APIから動的取得）
+  const carriers = carriersLoading ? [] : (carrierData || []).map(carrier => ({
+    value: carrier.key,
+    label: carrier.nameJa || carrier.name,
+    apiEnabled: carrier.key === 'fedex', // FedXのみAPI連携対応
+    url: carrier.trackingUrl
+  }));
   
-  const handleSaveSettings = () => {
-    showToast({
-      title: '設定保存',
-      message: '出品設定を保存しました',
-      type: 'success'
-    });
-    setIsSettingsModalOpen(false);
+  // 注文ステータスオプション（APIから動的取得）
+  const orderStatusOptions = orderStatuses?.parsedValue ? [
+    { value: 'all', label: 'すべて' },
+    ...orderStatuses.parsedValue.map((status: any) => ({
+      value: status.key,
+      label: status.nameJa
+    }))
+  ] : [
+    { value: 'all', label: 'すべて' },
+    { value: 'pending', label: '未確定' },
+    { value: 'confirmed', label: '受注確定' },
+    { value: 'processing', label: '出荷準備中' },
+    { value: 'shipped', label: '出荷済み' },
+    { value: 'delivered', label: '配達完了' },
+    { value: 'cancelled', label: 'キャンセル' },
+    { value: 'returned', label: '返品' }
+  ];
+
+  // eBayデータを取得する関数（開発環境用デモデータ）
+  const fetchEbayData = async (itemId: string, productName: string) => {
+    // 開発環境用: SQLiteに保存されたデモデータを使用
+    // 実際のeBay API呼び出しは無効化
+    
+    // デモ用のeBayタイトルと画像を生成
+    const demoTitles = [
+      'Canon EOS R5 Full Frame Mirrorless Camera Body - Excellent Condition',
+      'Nikon D850 DSLR Camera with 24-120mm Lens Kit - Professional Grade',
+      'Sony Alpha a7R IV Mirrorless Camera - 61MP Full Frame',
+      'Fujifilm X-T4 Mirrorless Camera with 18-55mm Lens - Black',
+      'Panasonic Lumix GH5 4K Video Camera - Content Creator Special',
+      'Olympus OM-D E-M1 Mark III Camera Body - Weather Sealed',
+      'Leica Q2 Full Frame Compact Camera - Luxury Edition',
+      'Seiko Prospex Diver Watch - Automatic Movement',
+      'Casio G-Shock Solar Watch - Military Style',
+      'Citizen Eco-Drive Chronograph - Titanium Case'
+    ];
+    
+    const demoImages = [
+      'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1514016810987-c59c4e3d6d29?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1523170335258-f5e06fda235b?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1543680947-d8618014ce9f?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=300&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1547996160-81dfa63595aa?w=300&h=300&fit=crop'
+    ];
+    
+    // アイテムIDやプロダクト名に基づいてデモデータを選択
+    const seed = itemId || productName || Math.random().toString();
+    const index = Math.abs(getHashCode(seed)) % demoTitles.length;
+    
+    
+    return {
+      ebayTitle: demoTitles[index],
+      ebayImage: demoImages[index],
+      ebayCategory: productName?.toLowerCase().includes('camera') ? 'Cameras & Photo' : 'Jewelry & Watches'
+    };
   };
 
-  const handleCreatePromotion = () => {
-    // 実際のプロモーション作成処理をここに実装
+  // Helper function to generate hash code
+  const getHashCode = (str: string) => {
+    let hash = 0;
+    if (str.length === 0) return hash;
+    for (let i = 0; i < str.length; i++) {
+      const chr = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + chr;
+      hash |= 0; // Convert to 32bit integer
+    }
+    return hash;
+  };
+
+  // データを取得する関数
+  const fetchSalesData = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: pageSize.toString(),
+        status: statusFilter
+      });
+      
+      console.log('🔍 Sales画面: /api/sales呼び出し開始', `/api/sales?${params}`);
+      const response = await fetch(`/api/sales?${params}`);
+      const data = await response.json();
+      console.log('🔍 Sales画面: /api/salesレスポンス', {
+        recentOrdersCount: data.recentOrders?.length,
+        firstOrder: data.recentOrders?.[0],
+        firstOrderTrackingInfo: {
+          trackingNumber: data.recentOrders?.[0]?.trackingNumber,
+          carrier: data.recentOrders?.[0]?.carrier
+        }
+      });
+      
+      
+      // 各注文について、APIのproductデータが既にeBayスタイルかチェックし、必要に応じてデモデータで補完
+      if (data.recentOrders) {
+        const ordersWithEbayData = await Promise.all(
+          data.recentOrders.map(async (order: any) => {
+            // APIから既に良いタイトルが来ている場合はそれを優先
+            let ebayTitle = order.product;
+            let ebayImage = order.items?.[0]?.productImage;
+            
+            // APIのタイトルが「注文 ORD-」形式の場合のみデモデータで補完
+            if (!ebayTitle || ebayTitle.startsWith('注文 ORD-')) {
+              const ebayData = await fetchEbayData(order.ebayItemId || order.id, order.product || '');
+              ebayTitle = ebayData.ebayTitle;
+              ebayImage = ebayData.ebayImage;
+            }
+            
+            const enhancedOrder = {
+              ...order,
+              ebayTitle,
+              ebayImage,
+              product: ebayTitle  // productプロパティも更新
+            };
+            
+            return enhancedOrder;
+          })
+        );
+        data.recentOrders = ordersWithEbayData;
+      }
+      
+      console.log('🔍 Sales画面: 最終的にsetSalesDataに渡すデータ', {
+        recentOrdersCount: data.recentOrders?.length,
+        firstOrderFinal: data.recentOrders?.[0],
+        firstOrderTrackingFinal: {
+          trackingNumber: data.recentOrders?.[0]?.trackingNumber,
+          carrier: data.recentOrders?.[0]?.carrier,
+          id: data.recentOrders?.[0]?.id,
+          orderNumber: data.recentOrders?.[0]?.orderNumber
+        }
+      });
+      setSalesData(data);
+    } catch (error) {
+      console.error('Error fetching sales data:', error);
+      showToast({
+        title: 'エラー',
+        message: '注文データの取得に失敗しました',
+        type: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSalesData();
+  }, [currentPage, statusFilter, pageSize]);
+
+  const handleGenerateLabel = (order: any) => {
+    setSelectedOrder(order);
+    setIsLabelModalOpen(true);
+  };
+
+
+
+  const handleCarrierSelect = async () => {
+    if (!selectedOrder || !selectedCarrier) return;
+
+    const carrier = carriers.find(c => c.value === selectedCarrier);
+    if (!carrier) return;
+
+    if (carrier.apiEnabled && carrier.value === 'fedex') {
+      // FedEx専用モーダルを開く
+      setIsLabelModalOpen(false);
+      setTimeout(() => {
+        setIsFedexModalOpen(true);
+      }, 300);
+    } else {
+      // 外部サイトへリンク
+      if (carrier.url) {
+        console.log(`Opening external URL: ${carrier.url} for carrier: ${carrier.label}`);
+        
+        const newWindow = window.open(carrier.url, '_blank');
+        console.log('Window opened:', newWindow);
+        
+        setIsLabelModalOpen(false);
+        
+        showToast({
+          title: '外部サービス',
+          message: `${carrier.label}を新しいタブで開きました。生成後、ラベルをアップロードしてください。`,
+          type: 'info'
+        });
+        
+        setTimeout(() => {
+          setIsUploadModalOpen(true);
+        }, 1000);
+      }
+    }
+    
+    // selectedCarrierはモーダル終了時にリセットされる
+  };
+
+  const handleFedexServiceSelect = async (serviceId: string) => {
+    if (!selectedOrder) return;
+
+    try {
+      showToast({
+        title: 'ラベル生成中',
+        message: 'FedExの配送ラベルを生成しています...',
+        type: 'info'
+      });
+
+      const response = await fetch('/api/shipping/fedex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item: {
+            id: selectedOrder.id,
+            orderNumber: selectedOrder.orderId || selectedOrder.orderNumber,
+            productName: selectedOrder.product,
+            customer: selectedOrder.customer,
+            shippingAddress: '東京都渋谷区神南1-1-1',
+            value: selectedOrder.amount
+          },
+          service: serviceId
+        })
+      });
+
+      if (!response.ok) throw new Error('FedExラベル生成に失敗しました');
+
+      const result = await response.json();
+
+      showToast({
+        title: 'FedExラベルが正常に生成されました',
+        message: `追跡番号: ${result.trackingNumber}。スタッフが梱包完了後にラベルを出力いたします。`,
+        type: 'success'
+      });
+
+      setSalesData((prev: any) => ({
+        ...prev,
+        recentOrders: prev.recentOrders.map((o: any) => 
+          o.id === selectedOrder.id 
+            ? { ...o, labelGenerated: true, trackingNumber: result.trackingNumber, carrier: result.carrier || 'fedex' }
+            : o
+        )
+      }));
+
+      // FedXモーダルを閉じてstateをリセット
+      setIsFedexModalOpen(false);
+      setSelectedOrder(null);
+      setSelectedCarrier('');
+
+    } catch (error) {
+      console.error('FedEx label generation error:', error);
+      showToast({
+        title: 'エラー',
+        message: 'FedExラベルの生成に失敗しました',
+        type: 'error'
+      });
+    }
+  };
+
+  const handleShowDetails = (order: any) => {
+    console.log('🔍 Sales画面: OrderDetailModalに渡す注文データ', {
+      order,
+      trackingNumber: order.trackingNumber,
+      carrier: order.carrier,
+      id: order.id,
+      orderNumber: order.orderNumber
+    });
+    setSelectedOrderForDetail(order);
+    setIsOrderDetailModalOpen(true);
+  };
+
+
+
+  const handleLabelUploadComplete = (labelUrl: string, provider: 'seller' | 'worlddoor', trackingNumber?: string, carrier?: string) => {
+    if (!selectedOrder) return;
+
+    setSalesData((prev: any) => ({
+      ...prev,
+      recentOrders: prev.recentOrders.map((o: any) => 
+        o.id === selectedOrder.id 
+          ? { 
+              ...o, 
+              labelGenerated: true, 
+              labelUrl, 
+              provider,
+              ...(trackingNumber && { trackingNumber }),
+              ...(carrier && { carrier: carrier })
+            }
+          : o
+      )
+    }));
+
     showToast({
-      title: 'プロモーション作成',
-      message: 'プロモーションを作成しました。設定内容が反映されます。',
+      title: 'アップロード完了',
+      message: '配送ラベルが正常にアップロードされました',
       type: 'success'
     });
-    setIsPromotionModalOpen(false);
   };
 
   if (loading) {
@@ -60,295 +370,340 @@ export default function SalesPage() {
   return (
     <DashboardLayout userType="seller">
       <div className="space-y-6">
-        {/* Header */}
-        <div className="intelligence-card global">
-          <div className="p-8">
-            <div className="flex items-center justify-between">
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="販売管理"
+          subtitle="売上・受注・配送を一元管理"
+        />
+
+        {/* 注文管理 - 統合版 */}
+        <div className="intelligence-card oceania">
+          
+          {/* ヘッダー部分（上に移動） */}
+          <div className="p-6 border-b border-nexus-border">
+            <div className="flex justify-between items-center">
               <div>
-                <h1 className="text-3xl font-display font-bold text-nexus-text-primary">
-                  販売管理
-                </h1>
-                <p className="text-nexus-text-secondary">
-                  出品状況と販売パフォーマンスを管理
+                <h2 className="text-lg font-semibold text-nexus-text-primary">
+                  注文管理
+                </h2>
+                <p className="text-sm text-nexus-text-secondary mt-1">
+                  すべての受注・配送状況を管理
                 </p>
-              </div>
-              <div className="flex space-x-3">
-                <NexusButton
-                  onClick={() => setIsSettingsModalOpen(true)}
-                  icon={<Cog6ToothIcon className="w-5 h-5" />}
-                >
-                  出品設定
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsPromotionModalOpen(true)}
-                  variant="primary"
-                  icon={<TicketIcon className="w-5 h-5" />}
-                >
-                  プロモーション作成
-                </NexusButton>
               </div>
             </div>
           </div>
+          
+          {/* フィルター・検索部分（タイトル削除版） */}
+          <div className="p-6 border-b border-nexus-border">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <NexusSelect
+                label="ステータス"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                options={orderStatusOptions}
+              />
+              
+              <NexusSelect
+                label="表示件数"
+                value={pageSize.toString()}
+                onChange={(e) => {
+                  setPageSize(parseInt(e.target.value));
+                  setCurrentPage(1);
+                }}
+                options={[
+                  { value: '10', label: '10' },
+                  { value: '20', label: '20' },
+                  { value: '50', label: '50' },
+                  { value: '100', label: '100' }
+                ]}
+              />
+              
+              {/* ページネーション情報 */}
+              {salesData?.pagination && (
+                <div className="flex items-end">
+                  <div className="text-sm text-nexus-text-secondary">
+                    {salesData.pagination.totalCount}件中 {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, salesData.pagination.totalCount)}件を表示
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6">
+            {salesData?.recentOrders ? (
+              <div className="overflow-x-auto">
+                <div className="holo-table">
+                  <table className="w-full">
+                    <thead className="holo-header">
+                      <tr>
+                        <th className="text-left p-4 font-medium text-nexus-text-secondary">商品</th>
+                        <th className="text-right p-4 font-medium text-nexus-text-secondary">金額</th>
+                        <th className="text-center p-4 font-medium text-nexus-text-secondary">ステータス</th>
+                        <th className="text-center p-4 font-medium text-nexus-text-secondary">ラベル</th>
+                        <th className="text-left p-4 font-medium text-nexus-text-secondary">注文日</th>
+                        <th className="text-center p-4 font-medium text-nexus-text-secondary">アクション</th>
+                      </tr>
+                    </thead>
+                    <tbody className="holo-body">
+                      {salesData.recentOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-nexus-text-secondary">
+                            注文データがありません
+                          </td>
+                        </tr>
+                      ) : (
+                        salesData.recentOrders.map((row, index) => (
+                          <tr key={row.id || index} className="holo-row">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-16 h-16 rounded border border-nexus-border overflow-hidden bg-nexus-bg-secondary">
+                                  {row.ebayImage || row.items?.[0]?.productImage ? (
+                                    <img 
+                                      src={row.ebayImage || row.items[0].productImage} 
+                                      alt={row.product}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-nexus-text-tertiary">
+                                      <CameraIcon className="w-5 h-5" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="text-nexus-text-primary font-medium max-w-xs overflow-hidden text-ellipsis whitespace-nowrap" title={row.product}>
+                                    {row.product}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-4 text-right">
+                              <span className="font-bold text-nexus-text-primary">
+                                ¥{Number(row.totalAmount || row.amount || 0).toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex justify-center">
+                                <BusinessStatusIndicator status={row.status} size="md" showLabel={true} />
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex justify-center">
+                                {row.labelGenerated ? (
+                                  <span className="status-badge success">
+                                    生成済み
+                                  </span>
+                                ) : (
+                                  <span className="status-badge info">
+                                    未生成
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-sm text-nexus-text-primary">
+                                {new Date(row.orderDate || row.date).toLocaleDateString('ja-JP')}
+                              </span>
+                            </td>
+                            <td className="p-4 text-center">
+                              <div className="flex justify-center gap-2">
+                                {['confirmed', 'processing'].includes(row.status) && !row.labelGenerated ? (
+                                  <NexusButton
+                                    onClick={() => handleGenerateLabel(row)}
+                                    size="sm"
+                                    variant="primary"
+                                    icon={<DocumentArrowUpIcon className="w-4 h-4" />}
+                                  >
+                                    ラベル生成
+                                  </NexusButton>
+                                ) : null}
+                                <NexusButton
+                                  onClick={() => handleShowDetails(row)}
+                                  size="sm"
+                                  variant="secondary"
+                                  icon={<EyeIcon className="w-4 h-4" />}
+                                >
+                                  詳細
+                                </NexusButton>
+
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-nexus-text-secondary">
+                データを読み込み中...
+              </div>
+            )}
+            
+            {/* ページネーション */}
+            {salesData?.pagination && salesData.pagination.totalPages > 1 && (
+              <div className="mt-6 flex justify-between items-center">
+                <div className="text-sm text-nexus-text-secondary">
+                  全{salesData.pagination.totalCount}件 ({salesData.pagination.totalPages}ページ中{currentPage}ページ目)
+                </div>
+                <div className="flex gap-2">
+                  <NexusButton
+                    onClick={() => setCurrentPage(1)}
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === 1}
+                  >
+                    最初
+                  </NexusButton>
+                  <NexusButton
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                    variant="secondary"
+                    size="sm"
+                    disabled={!salesData.pagination.hasPrevPage}
+                  >
+                    前へ
+                  </NexusButton>
+                  <span className="px-3 py-2 text-sm text-nexus-text-primary">
+                    {currentPage} / {salesData.pagination.totalPages}
+                  </span>
+                  <NexusButton
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                    variant="secondary"
+                    size="sm"
+                    disabled={!salesData.pagination.hasNextPage}
+                  >
+                    次へ
+                  </NexusButton>
+                  <NexusButton
+                    onClick={() => setCurrentPage(salesData.pagination.totalPages)}
+                    variant="secondary"
+                    size="sm"
+                    disabled={currentPage === salesData.pagination.totalPages}
+                  >
+                    最後
+                  </NexusButton>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Settings Modal */}
+        {/* 配送ラベル生成モーダル */}
         <BaseModal
-          isOpen={isSettingsModalOpen}
-          onClose={() => setIsSettingsModalOpen(false)}
-          title="出品設定"
+          isOpen={isLabelModalOpen}
+          onClose={() => {
+            setIsLabelModalOpen(false);
+            setSelectedOrder(null);
+            setSelectedCarrier('');
+            setSelectedFedexService('');
+          }}
+          title="配送ラベル生成"
           size="md"
         >
           <div className="space-y-6">
-            <NexusSelect
-              label="自動出品設定"
-              defaultValue="manual"
-              options={[
-                { value: "manual", label: "手動出品" },
-                { value: "auto", label: "自動出品" }
-              ]}
-            />
-            
-            <NexusSelect
-              label="価格設定方法"
-              defaultValue="manual"
-              options={[
-                { value: "manual", label: "手動設定" },
-                { value: "auto", label: "市場価格連動" }
-              ]}
-            />
-            
-            <NexusInput
-              label="利益率設定 (%)"
-              type="number"
-              min="0"
-              max="100"
-              defaultValue="20"
-              required
-            />
-            
-            <NexusCheckbox
-              label="写真撮影完了後に自動出品"
-              defaultChecked
-            />
-            
-            <div className="text-right mt-6 space-x-2">
-              <NexusButton onClick={() => setIsSettingsModalOpen(false)}>
+            <div className="space-y-4">
+              <NexusSelect
+                label="配送業者を選択"
+                value={selectedCarrier}
+                onChange={(e) => setSelectedCarrier(e.target.value)}
+                options={[
+                  { value: '', label: '配送業者を選択してください' },
+                  ...carriers.map(c => ({
+                    value: c.value,
+                    label: c.label
+                  }))
+                ]}
+                required
+              />
+              {selectedCarrier === 'fedex' && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-800">
+                    <TruckIcon className="w-5 h-5" />
+                    <p className="text-sm font-medium">
+                      FedExサービス詳細選択へ進みます
+                    </p>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">
+                    配送サービス・料金・配送時間を詳しく確認できます
+                  </p>
+                </div>
+              )}
+              {selectedCarrier && selectedCarrier !== '' && selectedCarrier !== 'fedex' && (
+                <p className="mt-2 text-sm text-yellow-600 flex items-start gap-1">
+                  <ExclamationTriangleIcon className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  外部サイトでラベルを生成後、アップロードしてください
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <NexusButton
+                onClick={() => {
+                  setIsLabelModalOpen(false);
+                  setSelectedOrder(null);
+                  setSelectedCarrier('');
+                  setSelectedFedexService('');
+                }}
+                variant="secondary"
+              >
                 キャンセル
               </NexusButton>
-              <NexusButton onClick={handleSaveSettings} variant="primary">
-                保存
+              <NexusButton
+                onClick={handleCarrierSelect}
+                variant="primary"
+                disabled={!selectedCarrier || selectedCarrier === ''}
+                icon={<DocumentArrowUpIcon className="w-5 h-5" />}
+              >
+                {selectedCarrier === 'fedex' ? '詳細選択へ進む' : selectedCarrier ? '外部サービスを開く' : '配送業者を選択'}
               </NexusButton>
             </div>
           </div>
         </BaseModal>
 
-        {/* Promotion Creation Modal */}
-        <BaseModal
-          isOpen={isPromotionModalOpen}
-          onClose={() => setIsPromotionModalOpen(false)}
-          title="プロモーション作成"
-          size="lg"
-        >
-          <div className="space-y-6">
-            <NexusInput
-              label="プロモーション名"
-              type="text"
-              placeholder="例: 夏の大セール"
-              required
-            />
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <NexusInput
-                label="割引率 (%)"
-                type="number"
-                min="0"
-                max="100"
-                placeholder="10"
-                required
-              />
-              <NexusInput
-                label="最低購入金額"
-                type="number"
-                min="0"
-                placeholder="10000"
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <NexusInput
-                label="開始日"
-                type="date"
-                required
-              />
-              <NexusInput
-                label="終了日"
-                type="date"
-                required
-              />
-            </div>
-            
-            <NexusTextarea
-              label="プロモーション詳細"
-              rows={3}
-              placeholder="プロモーションの詳細説明を入力してください"
-            />
-            
-            <div className="text-right mt-6 space-x-2">
-              <NexusButton onClick={() => setIsPromotionModalOpen(false)}>
-                キャンセル
-              </NexusButton>
-              <NexusButton onClick={handleCreatePromotion} variant="primary">
-                プロモーション作成
-              </NexusButton>
-            </div>
-          </div>
-        </BaseModal>
+        {/* ラベルアップロードモーダル */}
+        {selectedOrder && (
+          <ShippingLabelUploadModal
+            isOpen={isUploadModalOpen}
+            onClose={() => {
+              setIsUploadModalOpen(false);
+              setSelectedOrder(null);
+              setSelectedCarrier('');
+            }}
+            itemId={selectedOrder.id}
+            carrier={selectedCarrier}
+            onUploadComplete={handleLabelUploadComplete}
+          />
+        )}
 
-        {/* Stats Overview - Intelligence Metrics Style */}
-        <div className="intelligence-metrics">
-          <div className="unified-grid-4">
-            <div className="intelligence-card asia">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb blue">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge success">+23%</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{salesData?.totalSales?.toLocaleString() || '0'}
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  本日の売上
-                </div>
-              </div>
-            </div>
+        {/* FedEx専用サービス選択モーダル */}
+        {selectedOrder && (
+          <FedExServiceModal
+            isOpen={isFedexModalOpen}
+            onClose={() => {
+              setIsFedexModalOpen(false);
+              setSelectedOrder(null);
+              setSelectedCarrier('');
+            }}
+            onServiceSelect={handleFedexServiceSelect}
+            orderDetails={{
+              orderId: selectedOrder.orderId || selectedOrder.orderNumber,
+              product: selectedOrder.product,
+              weight: '2.5kg',
+              destination: '東京都内'
+            }}
+          />
+        )}
 
-            <div className="intelligence-card asia">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb green">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge info">好調</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{((salesData?.totalSales || 0) / 10000).toLocaleString()}
-                  <span className="text-lg font-normal text-nexus-text-secondary ml-1">万</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  月間売上
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card asia">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5m-6 0l4-4m0 0l-4-4m4 4H9"></path>
-                    </svg>
-                  </div>
-                  <span className="text-xs font-bold text-nexus-yellow">注文</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  {salesData?.totalOrders || 0}
-                  <span className="text-lg font-normal text-nexus-text-secondary ml-1">件</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  総注文数
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card asia">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb red">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge success">高単価</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{salesData?.averageOrderValue?.toLocaleString() || '0'}
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  平均注文額
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Orders Table - Holo Table Style */}
-        <div className="intelligence-card asia">
-          <div className="p-8">
-            <div className="mb-6">
-              <h3 className="text-2xl font-display font-bold text-nexus-text-primary">受注一覧</h3>
-              <p className="text-nexus-text-secondary mt-1">最新の注文状況</p>
-            </div>
-            
-            <HoloTable
-              columns={[
-                { key: 'orderId', label: '注文ID', width: '15%' },
-                { key: 'product', label: '商品名', width: '25%' },
-                { key: 'customer', label: '購入者', width: '15%' },
-                { key: 'amount', label: '価格', width: '15%', align: 'right' },
-                { key: 'status', label: 'ステータス', width: '15%', align: 'center' },
-                { key: 'date', label: '注文日', width: '15%' }
-              ]}
-              data={(salesData?.recentOrders || []).map((order: any) => ({
-                ...order,
-                orderId: order.orderId || order.orderNumber || `ORD-${String(order.id).padStart(6, '0')}`
-              }))}
-              renderCell={(value, column, row) => {
-                if (column.key === 'orderId') {
-                  return <span className="font-mono text-nexus-text-primary">{value}</span>;
-                }
-                if (column.key === 'product') {
-                  return <span className="font-medium text-nexus-text-primary">{value}</span>;
-                }
-                if (column.key === 'customer') {
-                  return <span className="text-nexus-text-secondary">{value}</span>;
-                }
-                if (column.key === 'amount') {
-                  return <span className="font-display font-bold">¥{value?.toLocaleString() || '0'}</span>;
-                }
-                if (column.key === 'status') {
-                  return (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className={`status-orb status-${
-                        value === '出荷済' ? 'optimal' : 
-                        value === '配送中' ? 'optimal' : 
-                        'monitoring'
-                      }`} />
-                      <span className={`status-badge ${
-                        value === '出荷済' ? 'success' : 
-                        value === '配送中' ? 'info' :
-                        'warning'
-                      }`}>
-                        {value}
-                      </span>
-                    </div>
-                  );
-                }
-                if (column.key === 'date') {
-                  return <span className="font-mono text-sm">{value}</span>;
-                }
-                return value;
-              }}
-              emptyMessage="注文データがありません"
-            />
-          </div>
-        </div>
+        {/* 注文詳細モーダル */}
+        <OrderDetailModal
+          isOpen={isOrderDetailModalOpen}
+          onClose={() => setIsOrderDetailModalOpen(false)}
+          order={selectedOrderForDetail}
+        />
       </div>
     </DashboardLayout>
   );
-} 
+}

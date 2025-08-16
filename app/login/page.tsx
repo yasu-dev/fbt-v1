@@ -22,30 +22,64 @@ export default function LoginPage() {
     setError('');
     
     try {
+      console.log('[CLIENT] ログイン処理開始:', { email, password: '***' });
+      
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+      }).catch((networkError) => {
+        console.error('[CLIENT] ネットワークエラー:', networkError);
+        throw new Error('ネットワークエラーが発生しました。');
       });
 
+      console.log('[CLIENT] レスポンス受信:', response.status, response.statusText);
+
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch((jsonError) => {
+          console.error('[CLIENT] JSONパースエラー:', jsonError);
+          throw new Error('サーバーレスポンスの解析に失敗しました。');
+        });
+        
+        console.log('[CLIENT] レスポンスデータ:', data);
+        
         if (data.success) {
           showToast({ type: 'success', title: 'ログイン成功', message: 'ダッシュボードへようこそ！' });
-          if (data.user.role === 'staff') {
-            router.push('/staff/dashboard');
-          } else {
-            router.push('/dashboard');
-          }
+          
+          // ログイン成功後のリダイレクト
+          const redirectPath = data.user.role === 'staff' || data.user.role === 'admin' ? '/staff/dashboard' : '/dashboard';
+          console.log('[CLIENT] リダイレクト先:', redirectPath);
+          
+          router.push(redirectPath);
+          return; // 成功時は処理終了
         } else {
-          throw new Error(data.error || 'ログインに失敗しました。');
+          console.error('[CLIENT] ログイン失敗 - success: false');
+          throw new Error(data.error || 'ログインに失敗しました');
         }
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'サーバーエラーが発生しました。');
+        console.error('[CLIENT] HTTPエラー:', response.status, response.statusText);
+        
+        let errorMessage = 'サーバーエラーが発生しました。';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+          console.error('[CLIENT] エラーデータ:', errorData);
+        } catch (parseError) {
+          console.error('[CLIENT] エラーレスポンスの解析に失敗:', parseError);
+        }
+        
+        throw new Error(errorMessage);
       }
     } catch (error: any) {
-      setError(error.message || 'ログインに失敗しました。');
+      console.error('[CLIENT] ログインエラー:', error);
+      const errorMessage = error.message || 'ログインに失敗しました';
+      
+      setError(errorMessage);
+      showToast({ 
+        type: 'error', 
+        title: 'ログインエラー', 
+        message: errorMessage 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -91,7 +125,9 @@ export default function LoginPage() {
           {/* Login Form */}
           <div className="intelligence-card global shadow-xl">
             <div className="p-8">
-              <form className="space-y-6" onSubmit={handleSubmit}>
+              <form className="space-y-6" onSubmit={handleSubmit} method="post">
+
+
                 {error && (
                   <div className="bg-nexus-red/8 border-2 border-nexus-red/20 text-nexus-red p-4 rounded-lg text-sm font-medium flex items-center">
                     <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -196,61 +232,7 @@ export default function LoginPage() {
                 </div>
               </form>
 
-              {/* Demo Credentials */}
-              <div className="mt-8 p-4 bg-primary-blue/10 rounded-xl border-2 border-primary-blue/25">
-                <p className="text-sm text-primary-blue mb-3 font-bold flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-primary-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  テスト用ログイン情報
-                </p>
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-white/70 border border-primary-blue/20">
-                    <span className="text-primary-blue font-medium">セラー:</span>
-                    <NexusButton
-                      type="button"
-                      data-testid="seller-login"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setEmail('seller@example.com');
-                        setPassword('password123');
-                        // 値が設定されることを確実にするため少し待つ
-                        setTimeout(() => {
-                          console.log('セラーログイン情報設定完了');
-                        }, 100);
-                      }}
-                      variant="secondary"
-                      size="sm"
-                      className="font-mono text-xs text-primary-blue hover:text-primary-blue-light"
-                    >
-                      seller@example.com / password123
-                    </NexusButton>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-white/70 border border-primary-blue/20">
-                    <span className="text-primary-blue font-medium">スタッフ:</span>
-                    <NexusButton
-                      type="button"
-                      data-testid="staff-login"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setEmail('staff@example.com');
-                        setPassword('password123');
-                        // 値が設定されることを確実にするため少し待つ
-                        setTimeout(() => {
-                          console.log('スタッフログイン情報設定完了');
-                        }, 100);
-                      }}
-                      variant="secondary"
-                      size="sm"
-                      className="font-mono text-xs text-primary-blue hover:text-primary-blue-light"
-                    >
-                      staff@example.com / password123
-                    </NexusButton>
-                  </div>
-                </div>
-              </div>
+
             </div>
           </div>
 
