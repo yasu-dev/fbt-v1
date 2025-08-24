@@ -1,22 +1,28 @@
-'use client';
+﻿'use client';
 
 import DashboardLayout from '../components/layouts/DashboardLayout';
-import { useState } from 'react';
+import UnifiedPageHeader from '../components/ui/UnifiedPageHeader';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowDownTrayIcon,
   CreditCardIcon,
 } from '@heroicons/react/24/outline';
 import NexusButton from '@/app/components/ui/NexusButton';
-import HoloTable from '@/app/components/ui/HoloTable';
+
 import BaseModal from '@/app/components/ui/BaseModal';
 import { BusinessStatusIndicator } from '@/app/components/ui';
+import Pagination from '@/app/components/ui/Pagination';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
 
 export default function BillingPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+  // ページネーション状態
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
 
   const [billingData] = useState({
     currentBalance: 2456789,
@@ -32,6 +38,16 @@ export default function BillingPage() {
     { id: 4, date: '2024-01-12', type: '手数料', description: '撮影手数料', amount: -300, status: '確定' },
     { id: 5, date: '2024-01-10', type: '振込', description: '売上金振込', amount: -1200000, status: '完了' },
   ]);
+
+  // ページネーション計算
+  const paginatedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return transactions.slice(startIndex, endIndex);
+  }, [transactions, currentPage, itemsPerPage]);
+
+  const totalItems = transactions.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const [monthlyReport] = useState({
     totalSales: 12456789,
@@ -129,43 +145,35 @@ export default function BillingPage() {
     }
   };
 
+  const headerActions = (
+    <>
+      <NexusButton
+        onClick={handleExportHistory}
+        icon={<ArrowDownTrayIcon className="w-5 h-5" />}
+      >
+        支払履歴をエクスポート
+      </NexusButton>
+      <NexusButton
+        onClick={() => setIsPaymentModalOpen(true)}
+        variant="primary"
+        icon={<CreditCardIcon className="w-5 h-5" />}
+      >
+        支払い方法を登録
+      </NexusButton>
+    </>
+  );
+
   return (
     <DashboardLayout userType="seller">
       <div className="space-y-8">
-        {/* Page Header - Intelligence Card Style */}
-        <div className="intelligence-card oceania">
-          <div className="p-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-display font-bold text-nexus-text-primary mb-2">請求管理</h1>
-                <h2 className="text-xl font-bold text-nexus-text-primary flex items-center gap-3">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                  </svg>
-                  請求・精算
-                </h2>
-                <p className="text-nexus-text-secondary mt-1">
-                  売上金の請求と精算状況を管理します
-                </p>
-              </div>
-              <div className="flex gap-4">
-                <NexusButton
-                  onClick={handleExportHistory}
-                  icon={<ArrowDownTrayIcon className="w-5 h-5" />}
-                >
-                  支払履歴をエクスポート
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsPaymentModalOpen(true)}
-                  variant="primary"
-                  icon={<CreditCardIcon className="w-5 h-5" />}
-                >
-                  支払い方法を登録
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="請求・精算"
+          subtitle="売上金の請求と精算状況を管理します"
+          userType="seller"
+          iconType="billing"
+          actions={headerActions}
+        />
 
         {/* Payment Method Modal */}
         <BaseModal
@@ -254,92 +262,11 @@ export default function BillingPage() {
           </div>
         </BaseModal>
 
-        {/* Balance Overview - Intelligence Metrics Style */}
-        <div className="intelligence-metrics">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="intelligence-card oceania">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb blue">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <span className="status-badge info">残高</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{(billingData.currentBalance / 10000).toLocaleString()}
-                  <span className="text-lg font-normal text-nexus-text-secondary ml-1">万</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  現在残高
-                </div>
-              </div>
-            </div>
 
-            <div className="intelligence-card oceania">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <span className="status-badge warning">予定</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{billingData.pendingPayment.toLocaleString()}
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  振込予定額
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card oceania">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb green">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <span className="status-badge success">完了</span>
-                </div>
-                <div className="metric-value font-display text-3xl font-bold text-nexus-text-primary">
-                  ¥{(billingData.lastPayment / 10000).toLocaleString()}
-                  <span className="text-lg font-normal text-nexus-text-secondary ml-1">万</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  前回振込額
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card oceania">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="action-orb red">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <span className="text-xs font-bold text-nexus-purple">日付</span>
-                </div>
-                <div className="metric-value font-display text-2xl font-bold text-nexus-text-primary">
-                  {billingData.nextPaymentDate}
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-2">
-                  次回振込日
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Transaction History - Holo Table Style */}
         <div className="intelligence-card oceania">
-          <div className="p-8">
+          <div className="p-5">
             <div className="mb-6">
               <h3 className="text-2xl font-display font-bold text-nexus-text-primary">取引履歴</h3>
               <p className="text-nexus-text-secondary mt-1">直近の入出金明細</p>
@@ -357,7 +284,7 @@ export default function BillingPage() {
                   </tr>
                 </thead>
                 <tbody className="holo-body">
-                  {transactions.map((transaction) => (
+                  {paginatedTransactions.map((transaction) => (
                     <tr key={transaction.id} className="holo-row">
                       <td className="text-sm text-nexus-text-primary">{transaction.date}</td>
                       <td>
@@ -389,35 +316,35 @@ export default function BillingPage() {
 
         {/* Monthly Report - Intelligence Card Style */}
         <div className="intelligence-card oceania">
-          <div className="p-8">
+          <div className="p-5">
             <div className="mb-6">
               <h3 className="text-2xl font-display font-bold text-nexus-text-primary">月次レポート</h3>
               <p className="text-nexus-text-secondary mt-1">今月の売上・手数料・税金の概要</p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">総売上</div>
                 <div className="text-2xl font-display font-bold text-nexus-text-primary">
                   ¥{monthlyReport.totalSales.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">手数料</div>
                 <div className="text-2xl font-display font-bold text-nexus-red">
                   -¥{monthlyReport.totalFees.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">純利益</div>
                 <div className="text-2xl font-display font-bold text-nexus-green">
                   ¥{monthlyReport.netIncome.toLocaleString()}
                 </div>
               </div>
               
-              <div className="bg-nexus-bg-secondary rounded-lg p-8 border border-nexus-border">
+              <div className="bg-nexus-bg-secondary rounded-lg p-5 border border-nexus-border">
                 <div className="text-sm text-nexus-text-secondary mb-2">予想税額</div>
                 <div className="text-2xl font-display font-bold text-nexus-text-primary">
                   ¥{monthlyReport.taxAmount.toLocaleString()}

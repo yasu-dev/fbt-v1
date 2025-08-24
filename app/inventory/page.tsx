@@ -1,283 +1,300 @@
 'use client';
 
 import DashboardLayout from '../components/layouts/DashboardLayout';
-import { useState, useEffect } from 'react';
+import UnifiedPageHeader from '../components/ui/UnifiedPageHeader';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  ArchiveBoxIcon,
-  PlusIcon,
-  ArrowUpTrayIcon,
-  ArrowDownTrayIcon,
+  EyeIcon,
+  FunnelIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+  ShoppingCartIcon,
 } from '@heroicons/react/24/outline';
-import ProductRegistrationModal from '../components/modals/ProductRegistrationModal';
-import { ContentCard, NexusInput, NexusButton, NexusLoadingSpinner } from '@/app/components/ui';
+import { NexusInput, NexusButton, NexusLoadingSpinner, NexusSelect, BusinessStatusIndicator, Pagination } from '@/app/components/ui';
 import BaseModal from '../components/ui/BaseModal';
+import ListingFormModal from '@/app/components/modals/ListingFormModal';
 import { useToast } from '@/app/components/features/notifications/ToastProvider';
-import { useRouter } from 'next/navigation';
+import { useCategories, useProductStatuses, createSelectOptions, getNameByKey } from '@/lib/hooks/useMasterData';
+
+type SortField = 'name' | 'sku' | 'status' | 'price';
+type SortDirection = 'asc' | 'desc';
+
+// 品質ランクバッジを生成する関数
+const getConditionBadge = (condition: string) => {
+  const conditionConfig: Record<string, { bg: string; text: string; label: string }> = {
+    excellent: { bg: 'bg-green-800', text: 'text-white', label: '最高品質' },
+    good: { bg: 'bg-blue-800', text: 'text-white', label: '高品質' },
+    fair: { bg: 'bg-yellow-700', text: 'text-white', label: '標準品質' },
+    poor: { bg: 'bg-red-800', text: 'text-white', label: '要注意' }
+  };
+
+  const config = conditionConfig[condition] || conditionConfig.fair;
+  
+  return (
+    <span className={`
+      inline-flex items-center
+      px-3 py-1.5
+      rounded-lg
+      border-2
+      font-bold
+      text-xs
+      uppercase
+      tracking-wide
+      ${config.bg}
+      ${config.text}
+      border-current
+    `}>
+      {config.label}
+    </span>
+  );
+};
 
 export default function InventoryPage() {
-  const router = useRouter();
   const { showToast } = useToast();
-  const [inventoryStats, setInventoryStats] = useState({
-    totalItems: 0,
-    listed: 0,
-    inspection: 0,
-    storage: 0,
-    totalValue: 0,
-  });
-
   const [inventory, setInventory] = useState<any[]>([]);
-  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
-  const [isCsvImportModalOpen, setIsCsvImportModalOpen] = useState(false);
-  const [inventoryData, setInventoryData] = useState<any>(null);
-  const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<any>(null);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isListingFormModalOpen, setIsListingFormModalOpen] = useState(false);
+  const [selectedListingProduct, setSelectedListingProduct] = useState<any>(null);
+  
+  // マスタデータの取得
+  const { categories, loading: categoriesLoading } = useCategories();
+  const { statuses: productStatuses, loading: statusesLoading } = useProductStatuses();
+  
+  // フィルター・ソート状態
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  
+  // ページネーション状態
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
-  // APIから実際のデータを取得
   useEffect(() => {
-    const fetchInventoryData = async () => {
+    // APIからデータを取得
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-        const response = await fetch('/api/inventory');
-        if (!response.ok) {
-          throw new Error('Failed to fetch inventory data');
+        console.log('📡 セラー在庫データ取得開始...', { currentPage, itemsPerPage });
+        
+        // ページングパラメーターを含めてAPIリクエスト
+        const searchParams = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: itemsPerPage.toString()
+        });
+        
+        if (selectedStatus !== 'all') {
+          searchParams.set('status', selectedStatus);
         }
+        if (selectedCategory !== 'all') {
+          searchParams.set('category', selectedCategory);
+        }
+        if (searchQuery.trim()) {
+          searchParams.set('search', searchQuery);
+        }
+        
+        const response = await fetch(`/api/inventory?${searchParams.toString()}`);
+        console.log('📡 APIレスポンス:', response.status, response.statusText);
+        
+        if (!response.ok) {
+          throw new Error(`API エラー: ${response.status} ${response.statusText}`);
+        }
+        
         const data = await response.json();
         
-        // APIレスポンスの形式に合わせてデータを変換
-        const inventoryItems = data.data.map((item: any) => ({
-          id: item.id,
-          name: item.name,
-          sku: item.sku,
-          category: item.category,
-          status: item.status,
-          location: item.location || '未設定',
-          value: item.price || 0,
-          certifications: ['AUTHENTIC'], // デフォルト認証
-        }));
+        // APIレスポンスからページネーション情報を取得
+        const paginationInfo = data.pagination || {};
         
-        setInventory(inventoryItems);
-        setItems(data.data);
+        console.log('📦 取得データ:', {
+          dataKeys: Object.keys(data),
+          productsCount: data.data?.length || 0,
+          firstProduct: data.data?.[0]?.name || 'なし',
+          paginationInfo
+        });
         
-        // 統計データを計算
-        const stats = {
-          totalItems: inventoryItems.length,
-          listed: inventoryItems.filter((item: any) => item.status === '出品中').length,
-          inspection: inventoryItems.filter((item: any) => item.status === '検品中').length,
-          storage: inventoryItems.filter((item: any) => item.status === '保管中').length,
-          totalValue: inventoryItems.reduce((sum: number, item: any) => sum + (item.value || 0), 0),
-        };
-        setInventoryStats(stats);
+        // サーバーサイドページネーションのため、取得したデータをそのまま設定
+        setInventory(data.data || []);
         
-        console.log(`✅ セラー在庫データ取得完了: ${inventoryItems.length}件`);
+        // ページネーション情報を設定
+        setTotalItems(paginationInfo.total || (data.data?.length || 0));
+        setTotalPages(paginationInfo.pages || 1);
       } catch (error) {
         console.error('在庫データ取得エラー:', error);
-        showToast({
-          title: 'データ取得エラー',
-          message: '在庫データの取得に失敗しました',
-          type: 'error'
-        });
+        // Toast の表示を次のフレームまで遅延
+        setTimeout(() => {
+          showToast({
+            title: 'エラー',
+            message: '在庫データの取得に失敗しました',
+            type: 'error'
+          });
+        }, 0);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchInventoryData();
-  }, []);
+    // 非同期関数を適切に処理
+    fetchData().catch(error => {
+      console.error('Fetch data error:', error);
+    });
+  }, [currentPage, itemsPerPage, selectedStatus, selectedCategory, searchQuery]); // フィルター変更時も再取得
 
-  const handleExportCsv = () => {
-    // 在庫データをCSV形式で生成
-    const csvData = [
-      ['商品名', 'SKU', 'カテゴリ', 'ステータス', '保管場所', '価値', '認証'],
-      ...inventory.map(item => [
-        item.name,
-        item.sku,
-        item.category,
-        item.status,
-        item.location,
-        item.value.toLocaleString(),
-        item.certifications.join('|')
-      ])
+  // カテゴリーオプション（APIから動的取得）
+  const categoryOptions = useMemo(() => {
+    if (categoriesLoading || !categories.length) {
+      return [{ value: 'all', label: 'すべてのカテゴリー' }];
+    }
+    return [
+      { value: 'all', label: 'すべてのカテゴリー' },
+      ...createSelectOptions(categories)
     ];
+  }, [categories, categoriesLoading]);
 
-    const csvContent = csvData.map(row => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-  };
+  // ステータスオプション（APIから動的取得）
+  const statusOptions = useMemo(() => {
+    if (statusesLoading || !productStatuses.length) {
+      return [{ value: 'all', label: 'すべてのステータス' }];
+    }
+    return [
+      { value: 'all', label: 'すべてのステータス' },
+      ...createSelectOptions(productStatuses)
+    ];
+  }, [productStatuses, statusesLoading]);
 
-  const handleProductRegistration = async (productData: any) => {
-    try {
-      const response = await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        showToast({
-          title: '商品登録完了',
-          message: `${productData.name}を登録しました`,
-          type: 'success'
-        });
-        setIsNewItemModalOpen(false);
-        // データを再取得
-        const updatedResponse = await fetch('/api/inventory');
-        const updatedData = await updatedResponse.json();
-        setInventoryData(updatedData);
-      } else {
-        showToast({
-          title: '登録エラー',
-          message: '商品の登録に失敗しました',
-          type: 'error'
-        });
+  // フィルター変更時のページリセット
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }, [selectedStatus, selectedCategory, searchQuery]);
+
+  // サーバーサイドページネーション対応のため、フィルタリングはAPIで処理済み
+  // クライアント側では取得したデータをそのまま使用
+  const filteredInventory = inventory;
+
+  // ソート
+  const sortedInventory = useMemo(() => {
+    const sorted = [...filteredInventory].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortField) {
+        case 'name':
+          aValue = a.name;
+          bValue = b.name;
+          break;
+        case 'sku':
+          aValue = a.sku;
+          bValue = b.sku;
+          break;
+        case 'status':
+          aValue = a.status;
+          bValue = b.status;
+          break;
+        case 'price':
+          aValue = a.price;
+          bValue = b.price;
+          break;
+        default:
+          aValue = a.name;
+          bValue = b.name;
       }
-    } catch (error) {
-      showToast({
-        title: 'エラー',
-        message: '商品の登録中にエラーが発生しました',
-        type: 'error'
-      });
-    }
-  };
 
-  const handleCsvImport = async (file: File) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch('/api/inventory/import', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        showToast({
-          title: 'インポート完了',
-          message: `${data.importedCount}件の商品を追加しました`,
-          type: 'success'
-        });
-        // データを再取得
-        const updatedResponse = await fetch('/api/inventory');
-        const updatedData = await updatedResponse.json();
-        setInventoryData(updatedData);
-      } else {
-        showToast({
-          title: 'インポートエラー',
-          message: 'CSVインポートに失敗しました',
-          type: 'error'
-        });
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
       }
-    } catch (error) {
-      showToast({
-        title: 'エラー',
-        message: 'CSVインポート中にエラーが発生しました',
-        type: 'error'
-      });
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [filteredInventory, sortField, sortDirection]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
     }
   };
 
-  const handleEditProduct = (productId: number) => {
-    const product = inventory.find(item => item.id === productId);
-    if (product) {
-      setEditingProduct(product);
-      setIsEditModalOpen(true);
-    }
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) return null;
+    return sortDirection === 'asc' ? (
+      <ChevronUpIcon className="w-4 h-4" />
+    ) : (
+      <ChevronDownIcon className="w-4 h-4" />
+    );
   };
 
-  const handleDeleteProduct = async (productId: number) => {
-    const product = inventory.find(item => item.id === productId);
-    if (product) {
-      setProductToDelete(product);
-      setIsDeleteModalOpen(true);
-    }
+
+
+  const convertStatusToKey = (status: string) => {
+    const statusMap: { [key: string]: string } = {
+      'inbound': 'inbound',
+      'inspection': 'inspection', 
+      'storage': 'storage',
+      'listing': 'listing',
+      'ordered': 'ordered',
+      'shipping': 'shipping',
+      'sold': 'sold',
+      'returned': 'returned',
+      'on_hold': 'on_hold'
+    };
+    return statusMap[status] || status;
   };
 
-  const confirmDeleteProduct = async () => {
-    if (!productToDelete) return;
-
-    try {
-      const response = await fetch(`/api/inventory?id=${productToDelete.id}`, {
-        method: 'DELETE',
-      });
-      
-      if (response.ok) {
-        showToast({
-          title: '商品削除完了',
-          message: '商品を削除しました',
-          type: 'success'
-        });
-        
-        // データを再取得
-        const updatedResponse = await fetch('/api/inventory');
-        const updatedData = await updatedResponse.json();
-        setInventoryData(updatedData);
-        
-        setIsDeleteModalOpen(false);
-        setProductToDelete(null);
-      } else {
-        showToast({
-          title: '削除エラー',
-          message: '商品の削除に失敗しました',
-          type: 'error'
-        });
-      }
-    } catch (error) {
-      showToast({
-        title: 'エラー',
-        message: '商品削除中にエラーが発生しました',
-        type: 'error'
-      });
-    }
+  const handleViewProduct = (product: any) => {
+    setSelectedProduct(product);
+    setIsDetailModalOpen(true);
   };
 
-  const handleUpdateProduct = async (productData: any) => {
-    try {
-      const response = await fetch('/api/inventory', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editingProduct.id,
-          ...productData
-        }),
-      });
-      
-      if (response.ok) {
-        showToast({
-          title: '商品更新完了',
-          message: '商品情報を更新しました',
-          type: 'success'
-        });
-        
-        setIsEditModalOpen(false);
-        setEditingProduct(null);
-        
-        // データを再取得
-        const updatedResponse = await fetch('/api/inventory');
-        const updatedData = await updatedResponse.json();
-        setInventoryData(updatedData);
-      } else {
-        showToast({
-          title: '更新エラー',
-          message: '商品情報の更新に失敗しました',
-          type: 'error'
-        });
-      }
-    } catch (error) {
-      showToast({
-        title: 'エラー',
-        message: '商品更新中にエラーが発生しました',
-        type: 'error'
-      });
+  const handleOpenListingForm = (product: any) => {
+    if (!product) {
+      console.log('❌ handleOpenListingForm: product is null or undefined');
+      return;
     }
+
+    console.log('🚀 eBayリスティングフォームを開く:', { productId: product.id, productName: product.name });
+    setSelectedListingProduct(product);
+    setIsListingFormModalOpen(true);
+    
+    // 詳細モーダルが開いている場合は閉じる
+    setIsDetailModalOpen(false);
+    setSelectedProduct(null);
   };
+
+  const handleListingSuccess = () => {
+    console.log('✅ eBay出品成功');
+    showToast({
+      title: '出品完了',
+      message: 'eBayへの出品が完了しました',
+      type: 'success'
+    });
+    
+    // リスティングフォームを閉じる
+    setIsListingFormModalOpen(false);
+    setSelectedListingProduct(null);
+    
+    // インベントリを再読み込み（必要に応じて）
+    // 実際の出品処理後、商品ステータスが変更される可能性があるため
+  };
+
+  const handleListingFormClose = () => {
+    setIsListingFormModalOpen(false);
+    setSelectedListingProduct(null);
+  };
+
+
 
   if (loading) {
     return (
@@ -289,314 +306,311 @@ export default function InventoryPage() {
 
   return (
     <DashboardLayout userType="seller">
-      <div className="space-y-8">
-        {/* Page Header - Intelligence Card Style */}
-        <div className="intelligence-card europe">
-          <div className="p-8">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-              <div className="flex-1">
-                <h1 className="text-2xl sm:text-3xl font-display font-bold text-nexus-text-primary mb-2">在庫管理</h1>
-                <h2 className="text-base sm:text-xl font-bold text-nexus-text-primary flex items-center gap-2 sm:gap-3">
-                  <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
-                  </svg>
-                  商品在庫ビュー
-                </h2>
-                <p className="text-nexus-text-secondary">
-                  商品在庫の状況を確認・管理できます
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                <NexusButton 
-                  onClick={() => setIsNewItemModalOpen(true)}
-                  variant="primary"
-                  size="sm"
-                  icon={<PlusIcon className="w-4 h-4 sm:w-5 sm:h-5" />}
-                >
-                  <span className="hidden sm:inline">新規商品登録</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={() => setIsCsvImportModalOpen(true)}
-                  size="sm"
-                  icon={<ArrowUpTrayIcon className="w-4 h-4 sm:w-5 sm:h-5" />}
-                >
-                  <span className="hidden sm:inline">CSVインポート</span>
-                </NexusButton>
-                <NexusButton
-                  onClick={handleExportCsv}
-                  size="sm"
-                  icon={<ArrowDownTrayIcon className="w-4 h-4 sm:w-5 sm:h-5" />}
-                >
-                  <span className="hidden sm:inline">CSVエクスポート</span>
-                </NexusButton>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Product Registration Modal */}
-        <ProductRegistrationModal
-          isOpen={isNewItemModalOpen}
-          onClose={() => setIsNewItemModalOpen(false)}
-          onSubmit={handleProductRegistration}
+      <div className="space-y-6">
+        {/* 統一ヘッダー */}
+        <UnifiedPageHeader
+          title="在庫管理"
+          subtitle="あなたの商品の状況を確認できます"
+          userType="seller"
+          iconType="inventory"
         />
 
-        {/* CSV Import Modal */}
-        <BaseModal
-          isOpen={isCsvImportModalOpen}
-          onClose={() => setIsCsvImportModalOpen(false)}
-          title="CSVインポート"
-          size="md"
-        >
-          <div>
-            <div className="mb-4">
+        {/* 商品一覧 - 統合版 */}
+        <div className="intelligence-card oceania">
+          
+          {/* フィルター・検索部分（タイトル削除版） */}
+          <div className="p-6 border-b border-gray-300">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <NexusSelect
+                label="ステータス"
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                options={statusOptions}
+              />
+
+              <NexusSelect
+                label="カテゴリー"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                options={categoryOptions}
+              />
+
               <NexusInput
-                type="file"
-                accept=".csv"
-                label="CSVファイルを選択"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleCsvImport(file);
-                    setIsCsvImportModalOpen(false);
-                  }
-                }}
+                type="text"
+                label="検索"
+                placeholder="商品名・SKU・カテゴリーで検索"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="text-right mt-6">
-              <NexusButton onClick={() => setIsCsvImportModalOpen(false)}>
-                キャンセル
-              </NexusButton>
-            </div>
           </div>
-        </BaseModal>
-
-        {/* Product Edit Modal */}
-        {editingProduct && (
-          <ProductRegistrationModal
-            isOpen={isEditModalOpen}
-            onClose={() => {
-              setIsEditModalOpen(false);
-              setEditingProduct(null);
-            }}
-            onSubmit={handleUpdateProduct}
-            initialData={editingProduct}
-          />
-        )}
-
-        {/* Stats Overview - Intelligence Metrics Style */}
-        <div className="intelligence-metrics">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="intelligence-card europe">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-2 sm:mb-4">
-                  <div className="action-orb blue w-6 h-6 sm:w-8 sm:h-8">
-                    <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge info text-[10px] sm:text-xs">{inventoryStats.totalItems}点</span>
-                </div>
-                <div className="metric-value font-display text-xl sm:text-2xl md:text-3xl font-bold text-nexus-text-primary">
-                  {inventoryStats.totalItems}
-                  <span className="text-sm sm:text-lg font-normal text-nexus-text-secondary ml-1">点</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-1 sm:mt-2 text-xs sm:text-sm">
-                  総在庫数
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card europe">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-2 sm:mb-4">
-                  <div className="action-orb green w-6 h-6 sm:w-8 sm:h-8">
-                    <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge success text-[10px] sm:text-xs">出品中</span>
-                </div>
-                <div className="metric-value font-display text-xl sm:text-2xl md:text-3xl font-bold text-nexus-text-primary">
-                  {inventoryStats.listed}
-                  <span className="text-sm sm:text-lg font-normal text-nexus-text-secondary ml-1">点</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-1 sm:mt-2 text-xs sm:text-sm">
-                  出品中
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card europe">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-2 sm:mb-4">
-                  <div className="action-orb w-6 h-6 sm:w-8 sm:h-8">
-                    <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                    </svg>
-                  </div>
-                  <span className="status-badge warning text-[10px] sm:text-xs">検品中</span>
-                </div>
-                <div className="metric-value font-display text-xl sm:text-2xl md:text-3xl font-bold text-nexus-text-primary">
-                  {inventoryStats.inspection}
-                  <span className="text-sm sm:text-lg font-normal text-nexus-text-secondary ml-1">点</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-1 sm:mt-2 text-xs sm:text-sm">
-                  検品中
-                </div>
-              </div>
-            </div>
-
-            <div className="intelligence-card europe">
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-2 sm:mb-4">
-                  <div className="action-orb red w-6 h-6 sm:w-8 sm:h-8">
-                    <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                  </div>
-                  <span className="text-[10px] sm:text-xs font-bold text-nexus-green">総資産</span>
-                </div>
-                <div className="metric-value font-display text-xl sm:text-2xl md:text-3xl font-bold text-nexus-text-primary">
-                  ¥{(inventoryStats.totalValue / 10000).toLocaleString()}
-                  <span className="text-sm sm:text-lg font-normal text-nexus-text-secondary ml-1">万</span>
-                </div>
-                <div className="metric-label text-nexus-text-secondary font-medium mt-1 sm:mt-2 text-xs sm:text-sm">
-                  総評価額
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Inventory Table - Holo Table Style */}
-        <div className="intelligence-card europe">
-          <div className="p-8">
-            <div className="mb-3 sm:mb-6">
-              <h3 className="text-lg sm:text-2xl font-display font-bold text-nexus-text-primary">在庫リスト</h3>
-              <p className="text-nexus-text-secondary mt-1 text-xs sm:text-sm">現在の在庫状況</p>
-            </div>
-            
-            <div className="holo-table">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-nexus-border">
-                    <th className="text-left p-4 font-medium text-nexus-text-secondary">商品名</th>
-                    <th className="text-left p-4 font-medium text-nexus-text-secondary">SKU</th>
-                    <th className="text-left p-4 font-medium text-nexus-text-secondary">カテゴリー</th>
-                    <th className="text-center p-4 font-medium text-nexus-text-secondary">ステータス</th>
-                    <th className="text-left p-4 font-medium text-nexus-text-secondary">保管場所</th>
-                    <th className="text-right p-4 font-medium text-nexus-text-secondary">評価額</th>
-                    <th className="text-center p-4 font-medium text-nexus-text-secondary">認証</th>
-                    <th className="text-center p-4 font-medium text-nexus-text-secondary">操作</th>
+          
+          {/* テーブル */}
+          <div className="overflow-x-auto">
+            <table className="holo-table" data-testid="inventory-table">
+              <thead className="holo-header">
+                <tr>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-nexus-text-secondary uppercase tracking-wider">画像</th>
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-nexus-text-secondary uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort('name')}
+                  >
+                    <div className="flex items-center gap-1">
+                      商品
+                      {getSortIcon('name')}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-nexus-text-secondary uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort('sku')}
+                  >
+                    <div className="flex items-center gap-1">
+                      SKU
+                      {getSortIcon('sku')}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-nexus-text-secondary uppercase tracking-wider">保管場所</th>
+                  <th 
+                    className="px-6 py-3 text-center text-xs font-medium text-nexus-text-secondary uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort('status')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      ステータス
+                      {getSortIcon('status')}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-6 py-3 text-right text-xs font-medium text-nexus-text-secondary uppercase tracking-wider cursor-pointer"
+                    onClick={() => handleSort('price')}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      価格
+                      {getSortIcon('price')}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-nexus-text-secondary uppercase tracking-wider">更新日</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-nexus-text-secondary uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedInventory.map((item) => (
+                  <tr 
+                    key={item.id}
+                    className="border-b border-nexus-border hover:bg-nexus-bg-tertiary transition-colors"
+                  >
+                    <td className="p-4 text-center">
+                      {item.images && item.images.length > 0 ? (
+                        <img 
+                          src={item.images[0].thumbnailUrl || item.images[0].url} 
+                          alt={item.name}
+                          className="w-12 h-12 object-cover rounded-lg mx-auto border border-nexus-border"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg mx-auto border border-nexus-border flex items-center justify-center">
+                          <span className="text-xs text-gray-400">画像なし</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <div className="font-medium text-nexus-text-primary">
+                        {item.name}
+                      </div>
+                      <div className="text-sm text-nexus-text-secondary mt-1">
+                        {item.category}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <span className="font-mono text-sm text-nexus-text-primary">
+                        {item.sku}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="text-sm text-nexus-text-secondary">
+                        {item.currentLocation?.name || item.currentLocation?.code || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex justify-center">
+                        <BusinessStatusIndicator 
+                          status={convertStatusToKey(item.status) as any} 
+                          size="sm" 
+                        />
+                      </div>
+                    </td>
+                    <td className="p-4 text-right">
+                      <span className="font-bold text-nexus-text-primary">
+                        ¥{item.price ? item.price.toLocaleString() : '0'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="text-sm text-nexus-text-secondary">
+                        {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('ja-JP', { 
+                          month: 'short', 
+                          day: 'numeric' 
+                        }) : '未設定'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex justify-center gap-2">
+                        <NexusButton
+                          onClick={() => handleViewProduct(item)}
+                          size="sm"
+                          variant="secondary"
+                          icon={<EyeIcon className="w-4 h-4" />}
+                        >
+                          詳細
+                        </NexusButton>
+                        {item.status === 'storage' && (
+                          <NexusButton
+                            onClick={() => handleOpenListingForm(item)}
+                            size="sm"
+                            variant="primary"
+                            icon={<ShoppingCartIcon className="w-4 h-4" />}
+                          >
+                            出品
+                          </NexusButton>
+                        )}
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {inventory.map((item: any) => (
-                    <tr key={item.id} className="border-b border-nexus-border hover:bg-nexus-bg-tertiary">
-                      <td className="p-4">
-                        <span className="font-medium text-nexus-text-primary text-xs sm:text-sm">{item.name}</span>
-                      </td>
-                      <td className="p-4">
-                        <span className="font-mono text-nexus-text-primary text-xs sm:text-sm">{item.sku}</span>
-                      </td>
-                      <td className="p-4 text-xs sm:text-sm">{item.category}</td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-center gap-1 sm:gap-2">
-                          <div className={`status-orb status-${item.status === '出品中' ? 'optimal' : 'monitoring'} w-2 h-2`} />
-                          <span className={`status-badge ${item.status === '出品中' ? 'success' : 'warning'} text-[10px] sm:text-xs`}>
-                            {item.status}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className="font-mono text-xs sm:text-sm">{item.location}</span>
-                      </td>
-                      <td className="p-4 text-right">
-                        <span className="font-display font-bold text-xs sm:text-sm">¥{item.value.toLocaleString()}</span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex justify-center gap-1 flex-wrap">
-                          {item.certifications.map((cert: string) => (
-                            <span key={cert} className={`cert-nano cert-${cert.toLowerCase()} text-[8px] sm:text-[10px]`}>
-                              {cert}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex justify-center gap-1">
-                          <NexusButton
-                            onClick={() => handleEditProduct(item.id)}
-                            size="sm"
-                            variant="secondary"
-                            className="text-xs"
-                          >
-                            編集
-                          </NexusButton>
-                          <NexusButton
-                            onClick={() => handleDeleteProduct(item.id)}
-                            size="sm"
-                            variant="secondary"
-                            className="text-xs text-red-600 hover:text-red-700"
-                          >
-                            削除
-                          </NexusButton>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {inventory.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="p-8 text-center text-nexus-text-secondary">
-                        在庫データがありません
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ))}
+                {sortedInventory.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-nexus-text-secondary">
+                      {searchQuery || selectedStatus !== 'all' || selectedCategory !== 'all'
+                        ? '検索条件に一致する商品がありません' 
+                        : '商品データがありません'
+                      }
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            
+            {/* ページネーション */}
+            {!loading && totalItems > 0 && (
+              <div className="mt-6 pt-4 border-t border-nexus-border">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={totalItems}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  onItemsPerPageChange={setItemsPerPage}
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Delete Confirmation Modal */}
+        {/* 商品詳細モーダル */}
         <BaseModal
-          isOpen={isDeleteModalOpen}
+          isOpen={isDetailModalOpen}
           onClose={() => {
-            setIsDeleteModalOpen(false);
-            setProductToDelete(null);
+            setIsDetailModalOpen(false);
+            setSelectedProduct(null);
           }}
-          title="商品削除の確認"
-          size="md"
+          title="商品詳細"
+          size="lg"
+          data-testid="product-detail-modal"
         >
-          <div>
-            <p className="text-nexus-text-primary mb-4">
-              「{productToDelete?.name}」を削除しますか？
-            </p>
-            <p className="text-nexus-text-secondary text-sm mb-6">
-              この操作は元に戻せません。
-            </p>
-            <div className="flex justify-end gap-3">
-              <NexusButton
-                onClick={() => {
-                  setIsDeleteModalOpen(false);
-                  setProductToDelete(null);
-                }}
-                variant="default"
-              >
-                キャンセル
-              </NexusButton>
-              <NexusButton
-                onClick={confirmDeleteProduct}
-                variant="danger"
-              >
-                削除する
-              </NexusButton>
+          {selectedProduct && (
+            <div className="space-y-6">
+              {/* 基本情報 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h4 className="font-bold text-nexus-text-primary mb-2">基本情報</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">商品名</span>
+                      <span className="font-bold text-nexus-text-primary">{selectedProduct.name || '未設定'}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">SKU</span>
+                      <span className="font-mono text-nexus-text-primary">{selectedProduct.sku || '未設定'}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">カテゴリー</span>
+                      <span className="text-nexus-text-primary">{selectedProduct.category || '未設定'}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">保管場所</span>
+                      <span className="text-nexus-text-primary">{selectedProduct.location || '未設定'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-bold text-nexus-text-primary mb-2">状況・価値</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">ステータス</span>
+                      <BusinessStatusIndicator 
+                        status={convertStatusToKey(selectedProduct.status) as any} 
+                        size="sm" 
+                      />
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">品質ランク</span>
+                      {getConditionBadge(selectedProduct.condition)}
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">評価額</span>
+                      <span className="font-bold text-blue-600 text-lg">
+                        ¥{selectedProduct.value ? selectedProduct.value.toLocaleString() : '0'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-nexus-text-secondary">更新日</span>
+                      <span className="text-nexus-text-secondary">
+                        {selectedProduct.updatedAt ? new Date(selectedProduct.updatedAt).toLocaleDateString('ja-JP') : '未設定'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 認証情報 */}
+              <div>
+                <h4 className="font-bold text-nexus-text-primary mb-2">認証情報</h4>
+                <div className="flex gap-2 flex-wrap">
+                  {selectedProduct.certifications && selectedProduct.certifications.length > 0 ? (
+                    selectedProduct.certifications.map((cert: string) => (
+                      <span key={cert} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-600 text-white">
+                        {cert}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-nexus-text-secondary text-sm">認証情報なし</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* セラー向けアクションボタン */}
+              {selectedProduct.status === 'storage' && (
+                <div className="pt-4 border-t border-gray-200">
+                  <div className="flex justify-end">
+                    <NexusButton
+                      onClick={() => handleOpenListingForm(selectedProduct)}
+                      variant="primary"
+                      icon={<ShoppingCartIcon className="w-4 h-4" />}
+                    >
+                      出品する
+                    </NexusButton>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </BaseModal>
+
+        {/* eBayリスティングフォームモーダル */}
+        <ListingFormModal
+          isOpen={isListingFormModalOpen}
+          onClose={handleListingFormClose}
+          product={selectedListingProduct}
+          onSuccess={handleListingSuccess}
+        />
       </div>
     </DashboardLayout>
   );
-} 
+}

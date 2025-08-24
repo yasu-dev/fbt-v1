@@ -65,7 +65,7 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
       setFormData({
         title: '',
         description: '',
-        priority: 'medium',
+
         category: 'inspection',
         assignedTo: '',
         dueDate: '',
@@ -145,22 +145,7 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <NexusSelect
-                label="優先度 *"
-                name="priority"
-                value={formData.priority}
-                onChange={handleChange}
-                required
-                disabled={isSubmitting}
-                options={[
-                  { value: "low", label: "低" },
-                  { value: "medium", label: "中" },
-                  { value: "high", label: "高" },
-                  { value: "urgent", label: "緊急" }
-                ]}
-              />
-            </div>
+
 
             <div>
               <NexusSelect
@@ -176,7 +161,7 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
                   { value: "shipping", label: "出荷" },
                   { value: "inventory", label: "在庫管理" },
                   { value: "returns", label: "返品処理" },
-                  { value: "maintenance", label: "メンテナンス" },
+
                   { value: "other", label: "その他" }
                 ]}
               />
@@ -191,10 +176,10 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
                 disabled={isSubmitting}
                 options={[
                   { value: "", label: "未割り当て" },
-                  { value: "staff001", label: "田中太郎" },
-                  { value: "staff002", label: "佐藤花子" },
-                  { value: "staff003", label: "山田次郎" },
-                  { value: "staff004", label: "鈴木美香" }
+                  { value: "staff001", label: "スタッフA" },
+                  { value: "staff002", label: "スタッフB" },
+                  { value: "staff003", label: "スタッフC" },
+                  { value: "staff004", label: "スタッフD" }
                 ]}
               />
             </div>
@@ -238,13 +223,20 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
             />
           </div>
           
-          <div className="flex gap-2 pt-4">
+          <div className="flex justify-end gap-2 pt-4">
+            <NexusButton
+              variant="default"
+              size="lg"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              キャンセル
+            </NexusButton>
             <NexusButton
               variant="primary"
               size="lg"
               type="submit"
               disabled={isSubmitting}
-              className="flex-1"
             >
               {isSubmitting ? (
                 <>
@@ -257,15 +249,6 @@ export default function TaskCreationModal({ isOpen, onClose, onSubmit }: TaskCre
               ) : (
                 '作成'
               )}
-            </NexusButton>
-            <NexusButton
-              variant="default"
-              size="lg"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="flex-1"
-            >
-              キャンセル
             </NexusButton>
           </div>
         </form>

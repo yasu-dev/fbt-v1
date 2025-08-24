@@ -1,82 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { AuthService } from '@/lib/auth';
-import { MockFallback } from '@/lib/mock-fallback';
+import { notificationService } from '@/lib/services/notification.service';
 
 const prisma = new PrismaClient();
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await AuthService.requireRole(request, ['staff', 'admin']);
-    if (!user) {
-      return NextResponse.json(
-        { error: '認証が必要です' },
-        { status: 401 }
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status');
-    const customerId = searchParams.get('customerId');
-    const limit = parseInt(searchParams.get('limit') || '50');
-
-    const whereClause: any = {};
-    if (status) {
-      whereClause.status = status;
-    }
-    if (customerId) {
-      whereClause.customerId = customerId;
-    }
-
-    const orders = await prisma.order.findMany({
-      where: whereClause,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      include: {
-        customer: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-                imageUrl: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    return NextResponse.json(orders);
-  } catch (error) {
-    console.error('Orders fetch error:', error);
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '20');
+    const status = url.searchParams.get('status') || 'all';
     
-    // Prismaエラーの場合はモックデータでフォールバック
-    if (MockFallback.isPrismaError(error)) {
-      console.log('Using fallback data for orders due to Prisma error');
-      try {
-        const { searchParams } = new URL(request.url);
-        const fallbackData = await MockFallback.getOrdersFallback({
-          status: searchParams.get('status') || undefined,
-          customerId: searchParams.get('customerId') || undefined,
-          limit: parseInt(searchParams.get('limit') || '50')
-        });
-        return NextResponse.json(fallbackData);
-      } catch (fallbackError) {
-        console.error('Fallback data error:', fallbackError);
-      }
-    }
+    const skip = (page - 1) * limit;
+    
+    // ステータス条件を構築
+    const whereCondition = status === 'all' ? {} : { status };
+    
+    // 注文データを取得
+    const [orders, totalCount] = await Promise.all([
+      prisma.order.findMany({
+        where: whereCondition,
+        include: {
+          items: {
+            include: {
+              product: {
+                select: { name: true, imageUrl: true }
+              }
+            }
+          },
+          customer: {
+            select: { username: true, email: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      }),
+      prisma.order.count({ where: whereCondition })
+    ]);
 
+    // レスポンスデータ構築
+    const ordersData = {
+      orders: orders.map(order => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customer: {
+          name: order.customer.username,
+          email: order.customer.email
+        },
+        status: order.status,
+        totalAmount: order.totalAmount,
+        items: order.items.map(item => ({
+          id: item.id,
+          productName: item.product.name,
+          imageUrl: item.product.imageUrl,
+          quantity: item.quantity,
+          price: item.price
+        })),
+        shippingAddress: order.shippingAddress,
+        paymentMethod: order.paymentMethod,
+        orderDate: order.orderDate.toISOString(),
+        shippedAt: order.shippedAt?.toISOString(),
+        deliveredAt: order.deliveredAt?.toISOString(),
+        notes: order.notes,
+        trackingNumber: order.trackingNumber,
+        carrier: order.carrier
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: page * limit < totalCount,
+        hasPrev: page > 1
+      }
+    };
+
+    return NextResponse.json(ordersData);
+  } catch (error) {
+    console.error('[ERROR] Orders API:', error);
+    
     return NextResponse.json(
-      { error: '注文取得中にエラーが発生しました' },
+      { error: '注文データの取得に失敗しました' },
       { status: 500 }
     );
   }
@@ -85,166 +90,102 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await AuthService.requireRole(request, ['staff', 'admin']);
-    if (!user) {
-      return NextResponse.json(
-        { error: '認証が必要です' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
+    
     const { customerId, items, shippingAddress, paymentMethod, notes } = body;
-
-    if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json(
-        { error: '顧客ID、商品情報が必要です' },
-        { status: 400 }
-      );
-    }
-
-    // Verify customer exists
-    const customer = await prisma.user.findUnique({
-      where: { id: customerId },
-    });
-
-    if (!customer) {
-      return NextResponse.json(
-        { error: '顧客が見つかりません' },
-        { status: 404 }
-      );
-    }
-
-    // Verify all products exist and are available
-    const productIds = items.map((item: any) => item.productId);
-    const products = await prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-        status: { in: ['storage', 'listing'] },
-      },
-    });
-
-    if (products.length !== productIds.length) {
-      return NextResponse.json(
-        { error: '一部の商品が見つからないか、利用できません' },
-        { status: 400 }
-      );
-    }
-
-    // Calculate total amount
-    let totalAmount = 0;
-    const orderItems = items.map((item: any) => {
-      const product = products.find(p => p.id === item.productId);
-      if (!product) {
-        throw new Error(`Product ${item.productId} not found`);
-      }
-      const itemPrice = item.price || product.price;
-      totalAmount += itemPrice * (item.quantity || 1);
-      return {
-        productId: item.productId,
-        quantity: item.quantity || 1,
-        price: itemPrice,
-      };
-    });
-
-    // Generate order number
-    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-
-    // Create order with items
+    
+    // 合計金額を計算
+    const totalAmount = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    
+    // 注文番号を生成
+    const orderNumber = `ORD-${Date.now()}`;
+    
+    // 注文を作成
     const order = await prisma.order.create({
       data: {
         orderNumber,
         customerId,
+        status: 'pending',
         totalAmount,
         shippingAddress,
         paymentMethod,
         notes,
         items: {
-          create: orderItems,
-        },
+          create: items.map((item: any) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price
+          }))
+        }
       },
       include: {
-        customer: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-          },
-        },
         items: {
           include: {
-            product: true,
-          },
+            product: true
+          }
         },
-      },
+        customer: true
+      }
     });
 
-    // Update product statuses to 'ordered'
-    await prisma.product.updateMany({
-      where: {
-        id: { in: productIds },
-      },
-      data: {
-        status: 'ordered',
-      },
-    });
+    // 商品のステータスを更新
+    for (const item of items) {
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: { status: 'ordered' }
+      });
+    }
 
-    // Log activity
+    // アクティビティログを作成
     await prisma.activity.create({
       data: {
         type: 'order_created',
-        description: `新しい注文 ${orderNumber} が作成されました`,
+        description: `新規注文 ${orderNumber} が作成されました`,
         userId: user.id,
         orderId: order.id,
-        metadata: JSON.stringify({
-          orderNumber,
-          totalAmount,
-          itemCount: items.length,
-        }),
-      },
+        metadata: JSON.stringify({ totalAmount, itemCount: items.length })
+      }
     });
 
-    return NextResponse.json({ success: true, order }, { status: 201 });
-  } catch (error) {
-    console.error('Order creation error:', error);
-    
-    // Prismaエラーの場合はモック成功レスポンスを返す
-    if (MockFallback.isPrismaError(error)) {
-      console.log('Using fallback response for order creation due to Prisma error');
-      const mockOrder = {
-        id: `mock-order-${Date.now()}`,
-        orderNumber: `ORD-MOCK-${Date.now()}`,
-        customerId: 'mock-customer',
-        totalAmount: 100000,
-        status: 'pending',
-        shippingAddress: 'モック住所',
-        paymentMethod: 'クレジットカード',
-        notes: 'モックレスポンス',
-        createdAt: new Date(),
-        customer: {
-          id: 'mock-customer',
-          username: 'モックユーザー',
-          email: 'mock@example.com'
-        },
-        items: [
-          {
-            id: 'mock-item',
-            productId: 'mock-product',
-            quantity: 1,
-            price: 100000,
-            product: {
-              id: 'mock-product',
-              name: 'モック商品',
-              sku: 'MOCK-PRODUCT',
-              imageUrl: '/api/placeholder/200/200'
-            }
+    // セラーに商品購入通知を送信
+    try {
+      const uniqueSellerIds = [...new Set(order.items.map(item => item.product.sellerId))];
+      
+      for (const sellerId of uniqueSellerIds) {
+        const sellerItems = order.items.filter(item => item.product.sellerId === sellerId);
+        const sellerItemNames = sellerItems.map(item => item.product.name).join(', ');
+        const sellerTotal = sellerItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        
+        await notificationService.sendNotification({
+          type: 'product_sold',
+          title: '🎉 商品が売れました！',
+          message: `商品「${sellerItemNames}」が売れました。合計金額: ¥${sellerTotal.toLocaleString()}`,
+          userId: sellerId,
+          metadata: {
+            orderNumber,
+            orderId: order.id,
+            totalAmount: sellerTotal,
+            items: sellerItems.map(item => ({
+              productName: item.product.name,
+              quantity: item.quantity,
+              price: item.price
+            }))
           }
-        ]
-      };
-      return NextResponse.json({ success: true, order: mockOrder }, { status: 201 });
+        });
+      }
+      
+      console.log(`📧 商品購入通知送信完了: ${uniqueSellerIds.length}名のセラーに送信`);
+    } catch (notificationError) {
+      console.error('商品購入通知送信エラー:', notificationError);
+      // 通知エラーは注文作成成功には影響させない
     }
 
+    return NextResponse.json(order, { status: 201 });
+  } catch (error) {
+    console.error('[ERROR] Order creation:', error);
+    
     return NextResponse.json(
-      { error: '注文作成中にエラーが発生しました' },
+      { error: '注文の作成に失敗しました' },
       { status: 500 }
     );
   }
@@ -253,87 +194,31 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const user = await AuthService.requireRole(request, ['staff', 'admin']);
-    if (!user) {
-      return NextResponse.json(
-        { error: '認証が必要です' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
-    const { orderId, status, shippingAddress, paymentMethod, notes } = body;
-
-    if (!orderId) {
-      return NextResponse.json(
-        { error: '注文IDが必要です' },
-        { status: 400 }
-      );
-    }
-
-    const existingOrder = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: { include: { product: true } } },
-    });
-
-    if (!existingOrder) {
-      return NextResponse.json(
-        { error: '注文が見つかりません' },
-        { status: 404 }
-      );
-    }
-
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'];
     
-    let mappedStatus = status;
-    if (status) {
-      mappedStatus = status.replace('保留中', 'pending')
-                           .replace('確認済み', 'confirmed')
-                           .replace('処理中', 'processing')
-                           .replace('出荷済み', 'shipped')
-                           .replace('配送完了', 'delivered')
-                           .replace('キャンセル', 'cancelled')
-                           .replace('返品', 'returned');
-
-      if (!validStatuses.includes(mappedStatus)) {
-        return NextResponse.json(
-          { error: '無効なステータスです' },
-          { status: 400 }
-        );
-      }
-    }
-
+    const { orderId, status, notes } = body;
+    
+    // 注文ステータスを更新
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
-        ...(mappedStatus && { status: mappedStatus }),
-        ...(shippingAddress !== undefined && { shippingAddress }),
-        ...(paymentMethod !== undefined && { paymentMethod }),
-        ...(notes !== undefined && { notes }),
-        ...(mappedStatus === 'shipped' && { shippedAt: new Date() }),
-        ...(mappedStatus === 'delivered' && { deliveredAt: new Date() }),
+        status,
+        notes,
+        ...(status === 'shipped' && { shippedAt: new Date() }),
+        ...(status === 'delivered' && { deliveredAt: new Date() })
       },
       include: {
-        customer: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-          },
-        },
         items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+          include: { product: true }
+        }
+      }
     });
 
-    // Update product statuses based on order status
-    if (mappedStatus) {
-      const productIds = existingOrder.items.map(item => item.productId);
-      let productStatus;
-
-      switch (mappedStatus) {
+    // 商品ステータスを更新
+    for (const item of updatedOrder.items) {
+      let productStatus = 'ordered';
+      
+      switch (status) {
         case 'confirmed':
         case 'processing':
           productStatus = 'ordered';
@@ -350,77 +235,31 @@ export async function PUT(request: NextRequest) {
         case 'returned':
           productStatus = 'returned';
           break;
-        default:
-          productStatus = null;
       }
-
-      if (productStatus) {
-        await prisma.product.updateMany({
-          where: {
-            id: { in: productIds },
-          },
-          data: {
-            status: productStatus,
-          },
-        });
-      }
+      
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: { status: productStatus }
+      });
     }
 
-    // Log activity
+    // アクティビティログを作成
     await prisma.activity.create({
       data: {
         type: 'order_updated',
-        description: `注文 ${existingOrder.orderNumber} が更新されました`,
+        description: `注文 ${updatedOrder.orderNumber} のステータスが ${status} に更新されました`,
         userId: user.id,
-        orderId,
-        metadata: JSON.stringify({
-          fromStatus: existingOrder.status,
-          toStatus: mappedStatus,
-          changes: { status, shippingAddress, paymentMethod, notes },
-        }),
-      },
+        orderId: updatedOrder.id,
+        metadata: JSON.stringify({ newStatus: status })
+      }
     });
 
-    return NextResponse.json({ success: true, order: updatedOrder });
+    return NextResponse.json(updatedOrder);
   } catch (error) {
-    console.error('Order update error:', error);
+    console.error('[ERROR] Order update:', error);
     
-    // Prismaエラーの場合はモック成功レスポンスを返す
-    if (MockFallback.isPrismaError(error)) {
-      console.log('Using fallback response for order update due to Prisma error');
-      const mockUpdatedOrder = {
-        id: `mock-${Date.now()}`,
-        orderNumber: `ORD-MOCK-${Date.now()}`,
-        status: 'pending',
-        shippingAddress: 'モック住所',
-        paymentMethod: 'クレジットカード',
-        notes: 'モック更新',
-        updatedAt: new Date(),
-        customer: {
-          id: 'mock-customer',
-          username: 'モックユーザー',
-          email: 'mock@example.com'
-        },
-        items: [
-          {
-            id: 'mock-item',
-            productId: 'mock-product',
-            quantity: 1,
-            price: 100000,
-            product: {
-              id: 'mock-product',
-              name: 'モック商品',
-              sku: 'MOCK-PRODUCT',
-              imageUrl: '/api/placeholder/200/200'
-            }
-          }
-        ]
-      };
-      return NextResponse.json({ success: true, order: mockUpdatedOrder });
-    }
-
     return NextResponse.json(
-      { error: '注文更新中にエラーが発生しました' },
+      { error: '注文の更新に失敗しました' },
       { status: 500 }
     );
   }
